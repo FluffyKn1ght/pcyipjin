@@ -6,6 +6,8 @@
 #ifndef _PCYIPJIN_PCE_MEMORY_H
 #define _PCYIPJIN_PCE_MEMORY_H
 
+#define BUS_DEVICE_COUNT 32
+
 /**
  * @brief Represents different kinds of memory accesses
  */
@@ -30,7 +32,7 @@ typedef struct {
  */
 typedef struct {
     u16 device_count;
-    BusDevice devices[];
+    BusDevice devices[BUS_DEVICE_COUNT];
 } Memory;
 
 /**

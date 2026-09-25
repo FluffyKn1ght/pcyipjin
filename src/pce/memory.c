@@ -1,5 +1,4 @@
 #include "pce/memory.h"
-#include "utils/arena.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,16 +6,8 @@
 
 #define UNDEFINED 0xFF
 
-Memory* mem_create() {
-    Memory* mem = NULL;
-    arena_alloc((void**)&mem, offsetof(Memory, devices));
-    return mem;
-}
-
 void mem_attachdev(Memory** mem_ptr, BusDevice* device) {
     (*mem_ptr)->device_count++;
-    arena_alloc((void**)mem_ptr,
-                offsetof(Memory, devices) + sizeof(BusDevice) * (*mem_ptr)->device_count);
     memcpy((*mem_ptr)->devices + ((*mem_ptr)->device_count - 1), device, sizeof(BusDevice));
 }
 
