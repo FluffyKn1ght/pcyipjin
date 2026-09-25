@@ -9,21 +9,6 @@
 #include "pce/memory.h"
 #include "stdbool.h"
 
-#define CPU_TMA_MPR0 0x1
-#define CPU_TMA_MPR1 0x2
-#define CPU_TMA_MPR2 0x4
-#define CPU_TMA_MPR3 0x8
-#define CPU_TMA_MPR4 0x10
-#define CPU_TMA_MPR5 0x20
-#define CPU_TMA_MPR6 0x40
-#define CPU_TMA_MPR7 0x80
-
-#define CPU_VEC_RESET 0x1FFE
-#define CPU_VEC_NMI 0xFFFC
-#define CPU_VEC_TIMER 0xFFFA
-#define CPU_VEC_IRQ1 0xFFF8
-#define CPU_VEC_IRQ2 0xFFF6 // also BRK
-
 typedef struct {
     bool c : 1; /**< Carry flag (unsigned overflow/underflow) */
     bool z : 1; /**< Zero flag (result == 0) */

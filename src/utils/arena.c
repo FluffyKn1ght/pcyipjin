@@ -7,12 +7,11 @@
 #define IDENT_FREED 0xDEADBEEF
 #define BLOCK_SIZE 4096
 
-#define CHECK_IDENT(func_name)                                                                     \
+#define CHECK_IDENT()                                                                              \
     if (arena->ident != IDENT) {                                                                   \
-        printf("[utils/arena.c::" func_name "] bad alloc_ptr (ident mismatch)\n");                 \
+        PRINTERR("invalid ident (bad alloc parameter?)");                                          \
         if (arena->ident == IDENT_FREED) {                                                         \
-            printf("[utils/arena.c::" func_name                                                    \
-                   "] ident == IDENT_FREED, check for use-after-free?\n");                         \
+            PRINTERR("ident == IDENT_FREED (use-after-free?)");                                    \
         }                                                                                          \
         abort();                                                                                   \
         exit(1);                                                                                   \
@@ -24,7 +23,7 @@ typedef struct {
     uint64_t size;            /**< Size of the arena, in bytes */
 } arena_t;
 
-void* arena_alloc(void** alloc_ptr, uintptr_t size) {
+void arena_alloc(void** alloc_ptr, uintptr_t size) {
     arena_t* arena = NULL;
 
     if (!(*alloc_ptr)) {
@@ -32,7 +31,7 @@ void* arena_alloc(void** alloc_ptr, uintptr_t size) {
         arena->ident = IDENT;
     } else {
         arena = (*alloc_ptr) - sizeof(arena_t);
-        CHECK_IDENT("arena_alloc");
+        CHECK_IDENT();
     }
 
     uint64_t old_capacity = arena->capacity_blocks;
@@ -47,13 +46,11 @@ void* arena_alloc(void** alloc_ptr, uintptr_t size) {
         arena = realloc(arena, sizeof(arena_t) + arena->capacity_blocks * BLOCK_SIZE);
         (*alloc_ptr) = arena + 1;
     }
-
-    return (void*)(arena + 1) + old_size;
 }
 
 void arena_free(void* alloc) {
     arena_t* arena = alloc - sizeof(arena_t);
-    CHECK_IDENT("arena_free");
+    CHECK_IDENT();
 
     // intentionally trash the ident
     arena->ident = IDENT_FREED;
@@ -63,14 +60,14 @@ void arena_free(void* alloc) {
 
 uint64_t arena_sizeof(void* alloc) {
     arena_t* arena = alloc - sizeof(arena_t);
-    CHECK_IDENT("arena_sizeof");
+    CHECK_IDENT();
 
     return arena->size;
 }
 
 uint64_t arena_memsizeof(void* alloc) {
     arena_t* arena = alloc - sizeof(arena_t);
-    CHECK_IDENT("arena_memsizeof");
+    CHECK_IDENT();
 
     return arena->capacity_blocks * BLOCK_SIZE + sizeof(arena_t);
 }

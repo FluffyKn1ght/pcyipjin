@@ -19,10 +19,8 @@
  *
  * @param alloc_ptr A pointer to the variable holding the allocation address
  * @param size How much memory to add to the allocation
- *
- * @return A pointer to the newly allocated area of memory (NOT the start of the arena allocation)
  */
-void* arena_alloc(void** alloc_ptr, uintptr_t size);
+void arena_alloc(void** alloc_ptr, uintptr_t size);
 
 /**
  * @brief Frees an arena allocation.

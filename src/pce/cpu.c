@@ -1,7 +1,22 @@
 #include "pce/cpu.h"
 #include <assert.h>
 
-inline static u21 _phys_addr(CPU* cpu, u16 logic_addr) {
+#define CPU_TMA_MPR0 0x1
+#define CPU_TMA_MPR1 0x2
+#define CPU_TMA_MPR2 0x4
+#define CPU_TMA_MPR3 0x8
+#define CPU_TMA_MPR4 0x10
+#define CPU_TMA_MPR5 0x20
+#define CPU_TMA_MPR6 0x40
+#define CPU_TMA_MPR7 0x80
+
+#define CPU_VEC_RESET 0x1FFE
+#define CPU_VEC_NMI 0xFFFC
+#define CPU_VEC_TIMER 0xFFFA
+#define CPU_VEC_IRQ1 0xFFF8
+#define CPU_VEC_IRQ2 0xFFF6 // also BRK
+
+inline static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     // get MPR register number
     u8 mpr_idx = (logic_addr & 0xF000) >> 12;
     assert(mpr_idx >= 0 && mpr_idx <= 7);

@@ -17,10 +17,10 @@ typedef enum : u8 {
  * @brief Represents a device attached to a certain address range of a memory bus.
  */
 typedef struct {
-    u21 start_addr;                              /**< Start of address range */
-    u21 end_addr;                                /**< End of address range */
-    u8 (*read)(void*, MemoryAccess, u21);        /**< Read function */
-    void (*write)(void*, MemoryAccess, u21, u8); /**< Write function */
+    u32 start_addr;                              /**< Start of address range */
+    u32 end_addr;                                /**< End of address range */
+    u8 (*read)(void*, MemoryAccess, u32);        /**< Read function */
+    void (*write)(void*, MemoryAccess, u32, u8); /**< Write function */
     void*
         userdata; /**< Argument that will be passed into BusDevice::read() and BusDevice::write() */
 } BusDevice;
@@ -62,7 +62,7 @@ void mem_attachdev(Memory** mem_ptr, BusDevice* device);
  *
  * @return The read value
  */
-u8 mem_read(Memory* mem, MemoryAccess access, u21 addr);
+u8 mem_read(Memory* mem, MemoryAccess access, u32 addr);
 
 /**
  * @brief Writes a single byte to the memory bus
@@ -74,6 +74,6 @@ u8 mem_read(Memory* mem, MemoryAccess access, u21 addr);
  *
  * @return The read value
  */
-void mem_write(Memory* mem, MemoryAccess access, u21 addr, u8 value);
+void mem_write(Memory* mem, MemoryAccess access, u32 addr, u8 value);
 
 #endif
