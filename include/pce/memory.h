@@ -3,8 +3,8 @@
  * @brief Emulates a 21-bit memory bus with a generalized mechanism for attaching devices
  */
 
-#ifndef _PCEEMU_PCE_MEMORY_H
-#define _PCEEMU_PCE_MEMORY_H
+#ifndef _PCYIPJIN_PCE_MEMORY_H
+#define _PCYIPJIN_PCE_MEMORY_H
 
 /**
  * @brief Represents different kinds of memory accesses

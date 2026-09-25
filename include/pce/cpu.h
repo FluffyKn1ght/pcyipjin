@@ -3,8 +3,8 @@
  * @brief Emulates a HuC6280 (MOS6502 variant) CPU
  */
 
-#ifndef _PCEEMU_PCE_CPU_H
-#define _PCEEMU_PCE_CPU_H
+#ifndef _PCYIPJIN_PCE_CPU_H
+#define _PCYIPJIN_PCE_CPU_H
 
 #include "pce/memory.h"
 #include "stdbool.h"
