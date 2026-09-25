@@ -1,5 +1,5 @@
 # Final output file basename
-TARGET_NAME := pc-engine-emu
+TARGET_NAME := pcyipjin
 
 # Compile as a shared library vs a standalone executable
 # This will define _SHARED in $(CC) if enabled
