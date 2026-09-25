@@ -60,7 +60,7 @@ $(TARGET): $(OBJECTS)
 	$(V)$(CC) -std=gnu23 -pedantic $(LDFLAGS) -o $@ $^
 
 cc_cmds:
-	$(V)bear -- $(CC) -xc -c -fsyntax-only -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) $(SRC_DIR)/dummy.c
+	$(V)bear -- $(CC) -xc -c -fsyntax-only -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) dummy.c
 	@echo -e "Generating: compile_commands.json"
 
 all: $(TARGET) cc_cmds
