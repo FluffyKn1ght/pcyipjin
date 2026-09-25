@@ -52,15 +52,15 @@ OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(SOURCES))
 $(BIN_DIR)/%.o: $(SRC_DIR)/%.c
 	$(V)mkdir -p $(shell dirname $@)
 	@echo -e "Compiling: $^ ==> $@"
-	$(V)$(CC) -xc -c -I./$(INCLUDE_DIR) -std=gnu23 -pedantic $(CFLAGS) -o $@ $^
+	$(V)$(CC) -xc -c -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) -o $@ $^
 
 $(TARGET): $(OBJECTS)
 	$(V)@mkdir -p $(shell dirname $@)
 	@echo -e "Linking: $@"
-	$(V)$(CC) -I./$(INCLUDE_DIR) -std=gnu23 -pedantic $(LDFLAGS) -o $@ $^
+	$(V)$(CC) -std=gnu23 -pedantic $(LDFLAGS) -o $@ $^
 
 cc_cmds:
-	$(V)bear -- $(CC) -xc -c -fsyntax-only -I./$(INCLUDE_DIR) $(CFLAGS) $(SRC_DIR)/dummy.c
+	$(V)bear -- $(CC) -xc -c -fsyntax-only -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) $(SRC_DIR)/dummy.c
 	@echo -e "Generating: compile_commands.json"
 
 all: $(TARGET) cc_cmds
