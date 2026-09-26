@@ -56,14 +56,14 @@ C_SOURCES := $(shell find $(SRC_DIR) -type f -name "*.c")
 C_OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(C_SOURCES))
 
 ASM_SOURCES := $(shell find $(SRC_DIR) -type f -name "*.s")
-ASM_OBJECTS := $(patsubst $(SRC_DIR)/%.s,$(BIN_DIR)/%.o,$(ASM_SOURCES))
+ASM_OBJECTS := $(patsubst $(SRC_DIR)/%.s,$(BIN_DIR)/%.asm.o,$(ASM_SOURCES))
 
 $(BIN_DIR)/%.o: $(SRC_DIR)/%.c
 	$(V)mkdir -p $(shell dirname $@)
 	@echo -e "Compiling: $^ ==> $@"
 	$(V)$(CC) -c -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) -o $@ $^
 
-$(BIN_DIR)/%.o: $(SRC_DIR)/%.s
+$(BIN_DIR)/%.asm.o: $(SRC_DIR)/%.s
 	$(V)mkdir -p $(shell dirname $@)
 	@echo -e "Assembling: $^ ==> $@"
 	$(V)$(CC) -c $(ASMFLAGS) -o $@ $^
