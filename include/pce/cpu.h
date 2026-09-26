@@ -36,7 +36,10 @@ typedef struct {
         u8 p;             /**< Status register, as a byte */
     };
 
-    // TODO: SH, DH, LH registers
+    u8 sh; /**< Block transfer source high (SH). Paired with X to get a 16-bit value */
+    u8 dh; /**< Block transfer destination high (DH). Paired with Y to get a 16-bit value */
+    u8 lh; /**< Block transfer length high (LH). Paired with ACC to get a 16-bit value */
+
     // TODO: Interrupt stuffs
     // TODO: Timer
     // TODO: I/O (K and O ports)
