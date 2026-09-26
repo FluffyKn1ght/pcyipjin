@@ -46,6 +46,8 @@ CFLAGS += $(shell pkgconf --cflags $(LIBS_PKGCONF))
 LDFLAGS += $(shell pkgconf --libs $(LIBS_PKGCONF))
 endif
 
+CFLAGS += -std=gnu23 -pedantic
+
 SOURCES := $(shell find $(SRC_DIR) -type f -name "*.c")
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(SOURCES))
 
