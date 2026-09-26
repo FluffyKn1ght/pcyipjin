@@ -8,6 +8,10 @@ BUILD_DIR := build
 
 include config.mk
 
+ifneq ($(shell uname -m),x86_64)
+$(error screw ur $(shell uname -m) ass bro)
+endif
+
 ifneq ($(VERBOSE),1)
 V := @
 endif
@@ -46,20 +50,28 @@ CFLAGS += $(shell pkgconf --cflags $(LIBS_PKGCONF))
 LDFLAGS += $(shell pkgconf --libs $(LIBS_PKGCONF))
 endif
 
-CFLAGS += -std=gnu23 -pedantic
+CFLAGS += -std=gnu23 -pedantic -masm=intel
 
-SOURCES := $(shell find $(SRC_DIR) -type f -name "*.c")
-OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(SOURCES))
+C_SOURCES := $(shell find $(SRC_DIR) -type f -name "*.c")
+C_OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(C_SOURCES))
+
+ASM_SOURCES := $(shell find $(SRC_DIR) -type f -name "*.s")
+ASM_OBJECTS := $(patsubst $(SRC_DIR)/%.s,$(BIN_DIR)/%.o,$(ASM_SOURCES))
 
 $(BIN_DIR)/%.o: $(SRC_DIR)/%.c
 	$(V)mkdir -p $(shell dirname $@)
 	@echo -e "Compiling: $^ ==> $@"
-	$(V)$(CC) -xc -c -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) -o $@ $^
+	$(V)$(CC) -c -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) -o $@ $^
 
-$(TARGET): $(OBJECTS)
+$(BIN_DIR)/%.o: $(SRC_DIR)/%.s
+	$(V)mkdir -p $(shell dirname $@)
+	@echo -e "Assembling: $^ ==> $@"
+	$(V)$(CC) -c $(ASMFLAGS) -o $@ $^
+
+$(TARGET): $(C_OBJECTS) $(ASM_OBJECTS)
 	$(V)@mkdir -p $(shell dirname $@)
 	@echo -e "Linking: $@"
-	$(V)$(CC) -std=gnu23 -pedantic $(LDFLAGS) -o $@ $^
+	$(V)$(CC) $(LDFLAGS) -o $@ $^
 
 cc_cmds:
 	$(V)bear -- $(CC) -xc -c -fsyntax-only -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(CFLAGS) dummy.c
