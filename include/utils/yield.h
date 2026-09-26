@@ -20,5 +20,6 @@ typedef struct {
 void _yield(u64 value);
 
 coroutine call(coroutine corout, coroutine (*func)(void*), void* arg);
+void free_coroutine(coroutine corout);
 
 #endif

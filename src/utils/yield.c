@@ -1,5 +1,13 @@
 #include "utils/yield.h"
 
+#include <stdlib.h>
+
+void free_coroutine(coroutine corout) {
+    if (!corout) return;
+    free(corout->stack_buf);
+    free(corout);
+}
+
 __attribute__((naked)) void _yield(u64 value) { __asm__(
     "mov [rsp-0x98], rax\n"
     "mov [rsp-0x90], rcx\n"
@@ -85,10 +93,7 @@ coroutine call(coroutine corout, coroutine(*func)(void*), void* ctx) {
         "1:\n"
         "mov rbx, rax\n"
         "mov rdi, [rbp+0x18]\n"
-        "mov rdi, [rdi+0x88]\n"
-        "call free\n"
-        "mov rdi, [rbp+0x18]\n"
-        "call free\n"
+        "call free_coroutine\n"
         "mov rax, rbx\n"
         "leave\n"
         "ret\n"

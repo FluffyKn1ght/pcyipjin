@@ -19,4 +19,5 @@ int main() {
     printf("%s\n", get_value(char*, test));
     test = call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
     printf("%s\n", get_value(char*, test));
+    free_coroutine(test);
 }
