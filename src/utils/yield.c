@@ -14,6 +14,7 @@ __attribute__((naked)) void _yield(u64 value) { __asm__(
     "mov [rsp-0x88], rdx\n"
     "mov [rsp-0x80], rbx\n"
     "mov [rsp-0x78], rsp\n"
+    "add qword ptr [rsp-0x78], 8\n"
     "mov [rsp-0x70], rbp\n"
     "mov [rsp-0x68], rdi\n"
     "mov [rsp-0x60], rsi\n"
@@ -28,6 +29,7 @@ __attribute__((naked)) void _yield(u64 value) { __asm__(
 
     "mov rdi, rbp\n"
     "sub rdi, rsp\n"
+    "sub rdi, 8\n"
     "mov [rsp-0x18], rdi\n"
 
     "sub rsp, 0x98\n"
@@ -35,7 +37,7 @@ __attribute__((naked)) void _yield(u64 value) { __asm__(
     "mov [rsp+0x88], rax\n"
 
     "mov rdi, rax\n"
-    "mov rsi, [rsp+0x28]\n"
+    "mov rsi, [rsp+0x20]\n"
     "mov rdx, [rsp+0x80]\n"
     "call memcpy\n"
 
@@ -66,7 +68,6 @@ coroutine call(coroutine corout, coroutine(*func)(void*), void* ctx) {
         "push rbp\n"
         "mov rbp, rsp\n"
         "sub rsp, [rdx+0x80]\n"
-        "and rsp, -16\n"
 
         "mov rdi, rsp\n"
         "mov rsi, [rdx+0x88]\n"
