@@ -95,7 +95,7 @@ coroutine coro_call(coroutine corout, coroutine (*func)(void*), void* ctx) {
             "1:\n"
             "mov rbx, rax\n"
             "mov rdi, [rbp+0x18]\n"
-            "call free_coroutine\n"
+            "call coro_free\n"
             "mov rax, rbx\n"
             "leave\n"
             "ret\n" ::"r"(corout));
