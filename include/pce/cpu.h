@@ -8,6 +8,7 @@
 
 #include "pce/memory.h"
 #include "stdbool.h"
+#include "utils/yield.h"
 
 typedef struct {
     bool c : 1; /**< Carry flag (unsigned overflow/underflow) */
@@ -47,6 +48,11 @@ typedef struct {
     u8 mpr[8]; /**< Mapping registers (MPR0-MPR7) */
 } CPU;
 
+typedef struct {
+    CPU* cpu;
+    Memory* mem;
+} cpu_step_ctx;
+
 /**
  * @brief Resets the CPU state.
  *
@@ -57,14 +63,17 @@ void cpu_reset(CPU* cpu);
 /**
  * @brief Advances the CPU by 1 CPU clock cycle.
  *
- * @details This doesn't correspond to 1 opcode. Instead, every time this function
+ * @note This is a coroutine, call with `coro_call(ybuf, cpu_step, &(cpu_step_ctx){cpu, mem}))`
+ *
+ * @details This doesn't correspond to executing 1 instruction. Instead, every time this function
  * is executed, the CPU performs one bus access (read/write), advancing its internal state
  * accordingly. This means that 1 instruction can take multiple cpu_step() calls to execute fully.
  * This is also known as being "cycle accurate".
  *
  * @param cpu The CPU whose state to advance.
  * @param mem The memory bus the CPU should access.
+ *
  */
-void cpu_step(CPU* cpu, Memory* mem);
+coroutine cpu_step(cpu_step_ctx* ctx);
 
 #endif
