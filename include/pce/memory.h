@@ -15,14 +15,17 @@ typedef enum : u8 {
     MEMACCESS_CPU, /**< Memory accesses coming from the CPU */
 } MemoryAccess;
 
+typedef u8 (*BusReadFunc)(void*, MemoryAccess, u32);
+typedef void (*BusWriteFunc)(void*, MemoryAccess, u32, u8);
+
 /**
  * @brief Represents a device attached to a certain address range of a memory bus.
  */
 typedef struct {
-    u32 start_addr;                              /**< Start of address range */
-    u32 end_addr;                                /**< End of address range */
-    u8 (*read)(void*, MemoryAccess, u32);        /**< Read function */
-    void (*write)(void*, MemoryAccess, u32, u8); /**< Write function */
+    u32 start_addr;     /**< Start of address range */
+    u32 end_addr;       /**< End of address range */
+    BusReadFunc read;   /**< Read function */
+    BusWriteFunc write; /**< Write function */
     void*
         userdata; /**< Argument that will be passed into BusDevice::read() and BusDevice::write() */
 } BusDevice;
@@ -41,10 +44,10 @@ typedef struct {
  * @details This is not reversible, you can't detach a BusDevice once it's been connected (and
  * really, why would you need to?)
  *
- * @param mem_ptr A pointer to the Memory bus to attach the device to
+ * @param mem The Memory bus to attach the device to
  * @param device The BusDevice to attach to the bus
  */
-void mem_attachdev(Memory** mem_ptr, BusDevice* device);
+void mem_attachdev(Memory* mem, BusDevice* device);
 
 /**
  * @brief Reads a single byte from the memory bus

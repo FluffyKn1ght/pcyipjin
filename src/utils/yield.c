@@ -56,10 +56,19 @@ __attribute__((naked)) void _yield(u64 value) {
             "ret\n");
 }
 
-coroutine coro_call(coroutine corout, coroutine (*func)(void*), void* ctx) {
-    if (!corout)
-        return func(ctx);
-    __asm__("mov rdx, %0\n"
+__attribute__((naked)) coroutine coro_call(coroutine corout, coroutine (*func)(void*), void* ctx) {
+    __asm__("push rbp\n"
+            "mov rbp, rsp\n"
+
+            "test rdi, rdi\n"
+            "jnz 2f\n"
+            "mov rdi, rdx\n"
+            "call rsi\n"
+            "leave\n"
+            "ret\n"
+
+            "2:\n"
+            "mov rdx, rdi\n"
 
             "push rdx\n"
             "push [rdx+0x90]\n"
@@ -93,11 +102,11 @@ coroutine coro_call(coroutine corout, coroutine (*func)(void*), void* ctx) {
             "jmp [rbp+0x10]\n"
 
             "1:\n"
-            "mov rbx, rax\n"
-            "mov rdi, [rbp+0x18]\n"
+            "sub rsp, 8\n"
+            "push rax\n"
+            "mov rdi, [rsp+0x18]\n"
             "call coro_free\n"
-            "mov rax, rbx\n"
+            "pop rax\n"
             "leave\n"
-            "ret\n" ::"r"(corout));
-    __builtin_unreachable();
+            "ret\n");
 }

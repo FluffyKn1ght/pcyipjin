@@ -26,6 +26,16 @@ typedef enum : u8 {
     yield(0);                                                                                      \
     dest = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
 
+#define WRITE(addr, value)                                                                         \
+    yield(0);                                                                                      \
+    mem_write(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)), (value));
+
+#define LOAD_ZEROPAGE(zp_low)                                                                      \
+    READ(u8 zp8, 0x2000 | (zp_low));                                                               \
+    yield(0);
+
+#define ZPX (0x2000 | cpu->x)
+
 #define ADDR_IMPLIED_TMA() READ(TMAMPRReg mpr, cpu->pc++);
 #define ADDR_IMPLIED_TAI()                                                                         \
     READ(cpu->x, cpu->pc++);                                                                       \
@@ -34,32 +44,33 @@ typedef enum : u8 {
     READ(cpu->dh, cpu->pc++);                                                                      \
     READ(cpu->acc, cpu->pc++);                                                                     \
     READ(cpu->lh, cpu->pc++);
-#define ADDR_IMMEDIATE() u8 imm8 = READ(cpu->pc++);
+#define ADDR_IMMEDIATE() READ(u8 imm8, cpu->pc++);
 #define ADDR_ZEROPAGE()                                                                            \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    u16 zp_addr = 0x2000 | zp_low;                                                                 \
-    READ(u8 zp8, zp_addr);
+    LOAD_ZEROPAGE(zp_low);
 #define ADDR_ZEROPAGE_X()                                                                          \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    u16 zp_addr = 0x2000 | (zp_low + cpu->x);                                                      \
-    READ(u8 zp8, zp_addr);
+    LOAD_ZEROPAGE(zp_low + cpu->x);
 #define ADDR_ZEROPAGE_Y()                                                                          \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    u16 zp_addr = 0x2000 | (zp_low + cpu->y);                                                      \
-    READ(u8 zp8, zp_addr);
+    LOAD_ZEROPAGE(zp_low + cpu->y);
 #define ADDR_ZEROPAGE_REL()                                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    u16 zp_addr = 0x2000 | zp_low;                                                                 \
-    READ(s8 offset, cpu->pc++);
+    LOAD_ZEROPAGE(zp_low);                                                                         \
+    s8 rel8 = (u8)zp8;
 #define ADDR_ZEROPAGE_IND()                                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
+    yield(0);                                                                                      \
     u16 zp_addr = 0x2000 | zp_low;                                                                 \
+    yield(0);                                                                                      \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
     u16 addr = addr_low | (addr_high << 8);
 #define ADDR_ZEROPAGE_IND_X()                                                                      \
     READ(u8 zp_low, cpu->pc++);                                                                    \
+    yield(0);                                                                                      \
     u16 zp_addr = 0x2000 | (zp_low + cpu->x);                                                      \
+    yield(0);                                                                                      \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
     u16 addr = addr_low | (addr_high << 8);
@@ -69,6 +80,7 @@ typedef enum : u8 {
 #define ADDR_ABSOLUTE()                                                                            \
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
+    yield(0);                                                                                      \
     u16 addr = addr_low | (addr_high << 8);
 #define ADDR_ABSOLUTE_X()                                                                          \
     ADDR_ABSOLUTE();                                                                               \
@@ -76,15 +88,14 @@ typedef enum : u8 {
 #define ADDR_ABSOLUTE_Y()                                                                          \
     ADDR_ABSOLUTE();                                                                               \
     addr += cpu->y;
-#define ADDR_INDIRECT()                                                                            \
-    READ(u8 ind_addr_low, cpu->pc++);                                                              \
-    READ(u8 ind_addr_high, cpu->pc++);                                                             \
-    u16 ind_addr = addr_low | (addr_high << 8);                                                    \
+#define ADDR_ABSOLUTE_IND()                                                                        \
+    ADDR_ZEROPAGE();                                                                               \
+    u16 ind_addr = ind_addr_low | (ind_addr_high << 8);                                            \
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
     u16 addr = addr_low | (addr_high << 8);
-#define ADDR_INDIRECT_X()                                                                          \
-    ADDR_INDIRECT();                                                                               \
+#define ADDR_ABSOLUTE_IND_X()                                                                      \
+    ADDR_ABSOLUTE_IND();                                                                           \
     addr += cpu->x;
 #define ADDR_RELATIVE() READ(s8 offset, cpu->pc++);
 #define ADDR_IMM_ZEROPAGE()                                                                        \
@@ -99,6 +110,17 @@ typedef enum : u8 {
 #define ADDR_IMM_ABSOLUTE_X()                                                                      \
     ADDR_IMMEDIATE();                                                                              \
     ADDR_ABSOLUTE_X();
+
+// TODO: affect cpu flags
+#define INSTR_ADC(operand2)                                                                        \
+    if (cpu->status.t) {                                                                           \
+        READ(u8 zpx, ZPX);                                                                         \
+        zpx += (operand2) + cpu->status.c;                                                         \
+        yield(0);                                                                                  \
+        WRITE(ZPX, zpx);                                                                           \
+    } else {                                                                                       \
+        cpu->acc += (operand2) + cpu->status.c;                                                    \
+    }
 
 static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     // get MPR register number
@@ -125,13 +147,65 @@ void cpu_reset(CPU* cpu) {
     // TODO: HSM pin goes low
 }
 
-coroutine cpu_step(cpu_step_ctx* ctx) {
+coroutine cpu_step(void* ctxptr) {
+    cpu_step_ctx* ctx = (cpu_step_ctx*)ctxptr;
     CPU* cpu = ctx->cpu;
     Memory* mem = ctx->mem;
 
     u8 opcode = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, cpu->pc++));
 
     switch (opcode) {
+    case 0x69: { // adc #xx
+        ADDR_IMMEDIATE();
+        INSTR_ADC(imm8);
+        break;
+    }
+    case 0x65: { // adc zz
+        ADDR_ZEROPAGE();
+        INSTR_ADC(zp8);
+        break;
+    }
+    case 0x75: { // adc zz, x
+        ADDR_ZEROPAGE_X();
+        INSTR_ADC(zp8);
+        break;
+    }
+    case 0x72: { // adc (zz)
+        ADDR_ZEROPAGE_IND();
+        READ(u8 ind_value, addr);
+        INSTR_ADC(ind_value);
+        break;
+    }
+    case 0x61: { // adc (zz, x)
+        ADDR_ZEROPAGE_IND_X();
+        READ(u8 ind_value, addr);
+        INSTR_ADC(ind_value);
+        break;
+    }
+    case 0x71: { // adc (zz), y
+        ADDR_ZEROPAGE_IND_Y();
+        READ(u8 ind_value, addr);
+        INSTR_ADC(ind_value);
+        break;
+    }
+    case 0x6D: { // adc hell
+        ADDR_ABSOLUTE();
+        READ(u8 abs_value, addr);
+        INSTR_ADC(abs_value);
+        break;
+    }
+    case 0x7D: { // adc hhll, x
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs_value, addr);
+        INSTR_ADC(abs_value);
+        break;
+    }
+    case 0x79: { // adc hhll, y
+        ADDR_ABSOLUTE_Y();
+        READ(u8 abs_value, addr);
+        INSTR_ADC(abs_value);
+        break;
+    }
     default: {
         printf("unknown opcode\n");
         abort();

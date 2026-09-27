@@ -6,9 +6,9 @@
 
 #define UNDEFINED 0xFF
 
-void mem_attachdev(Memory** mem_ptr, BusDevice* device) {
-    (*mem_ptr)->device_count++;
-    memcpy((*mem_ptr)->devices + ((*mem_ptr)->device_count - 1), device, sizeof(BusDevice));
+void mem_attachdev(Memory* mem, BusDevice* device) {
+    mem->device_count++;
+    memcpy(mem->devices + (mem->device_count - 1), device, sizeof(BusDevice));
 }
 
 u8 mem_read(Memory* mem, MemoryAccess access, u32 addr) {

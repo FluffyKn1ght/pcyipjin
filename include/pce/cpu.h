@@ -70,10 +70,8 @@ void cpu_reset(CPU* cpu);
  * accordingly. This means that 1 instruction can take multiple cpu_step() calls to execute fully.
  * This is also known as being "cycle accurate".
  *
- * @param cpu The CPU whose state to advance.
- * @param mem The memory bus the CPU should access.
- *
+ * @param ctxptr (cpu_step_ctx*) A struct containing the params to the function
  */
-coroutine cpu_step(cpu_step_ctx* ctx);
+coroutine cpu_step(void* ctxptr);
 
 #endif

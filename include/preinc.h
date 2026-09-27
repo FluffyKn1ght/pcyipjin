@@ -3,10 +3,7 @@
 #define STR_(x) #x
 #define STR(x) STR_(x)
 
-#define PRINTERR(msg)                                                                              \
-    printf("[" __FILE__ "::%s"                                                                     \
-           "] " msg " (line " STR(__LINE__) ")",                                                   \
-           __FUNCTION__)
+#define PRINT_FILEPOS "[" __FILE__ ":" STR(__LINE__) "] "
 
 #define PHYSADDR_MASK 0x1fffff
 
