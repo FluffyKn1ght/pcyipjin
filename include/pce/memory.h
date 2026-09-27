@@ -36,15 +36,6 @@ typedef struct {
 } Memory;
 
 /**
- * @brief Creates a new memory bus with no devices attached to it
- *
- * @note To free the memory bus created with this function, use arena_free()
- *
- * @returns The created memory bus
- */
-Memory* mem_create();
-
-/**
  * @brief Attaches a device to the memory bus
  *
  * @details This is not reversible, you can't detach a BusDevice once it's been connected (and
