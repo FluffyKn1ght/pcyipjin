@@ -51,7 +51,7 @@ void _yield(u64 value);
  * @return The saved function state (as a YieldBuf)
  * @retval NULL The coroutine has finished running
  */
-coroutine call(coroutine corout, coroutine (*func)(void*), void* arg);
+coroutine coro_call(coroutine corout, coroutine (*func)(void*), void* arg);
 
 /**
  * @brief Frees a YieldBuf object and all of its internal buffers
@@ -60,6 +60,6 @@ coroutine call(coroutine corout, coroutine (*func)(void*), void* arg);
  *
  * @param corout The YieldBuf object to free
  */
-void free_coroutine(coroutine corout);
+void coro_free(coroutine corout);
 
 #endif

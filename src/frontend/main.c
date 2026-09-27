@@ -18,14 +18,14 @@ coroutine sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire(void* 
 
 int main() {
     coroutine test = NULL;
-    test = call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
+    test = coro_call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
     printf("%s\n", get_value(char*, test));
-    test = call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
+    test = coro_call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
     printf("%s\n", get_value(char*, test));
-    test = call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
+    test = coro_call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
     printf("%s\n", get_value(char*, test));
-    test = call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
+    test = coro_call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
     printf("%s\n", get_value(char*, test));
-    test = call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
-    free_coroutine(test);
+    test = coro_call(test, sing_the_classic_song_September_by_the_band_Earth_Wind_and_Fire, NULL);
+    coro_free(test);
 }
