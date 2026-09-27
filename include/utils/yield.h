@@ -56,7 +56,7 @@ coroutine call(coroutine corout, coroutine (*func)(void*), void* arg);
 /**
  * @brief Frees a YieldBuf object and all of its internal buffers
  *
- * @note This should be called the coroutine has finished running (call() returns NULL)
+ * @note This should be called after the coroutine has finished running (call() returns NULL)
  *
  * @param corout The YieldBuf object to free
  */
