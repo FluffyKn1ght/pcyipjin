@@ -1,5 +1,6 @@
 #include "pce/cpu.h"
 #include "pce/memory.h"
+#include "pce/testmem.h"
 #include "utils/yield.h"
 #include <assert.h>
 #include <stdio.h>
@@ -30,11 +31,18 @@ typedef enum : u8 {
     yield(0);                                                                                      \
     mem_write(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)), (value));
 
+#define DUMMY_READ(addr)                                                                           \
+    yield(0);                                                                                      \
+    mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
+
 #define LOAD_ZEROPAGE(zp_low)                                                                      \
     READ(u8 zp8, 0x2000 | (zp_low));                                                               \
     yield(0);
 
-#define ZPX (0x2000 | cpu->x)
+#define READZPX(dest)                                                                              \
+    yield(0);                                                                                      \
+    u8 zpx_addr = 0x2000 | cpu->x;                                                                 \
+    READ(dest, zpx_addr);
 
 #define ADDR_IMPLIED_TMA() READ(TMAMPRReg mpr, cpu->pc++);
 #define ADDR_IMPLIED_TAI()                                                                         \
@@ -57,7 +65,7 @@ typedef enum : u8 {
 #define ADDR_ZEROPAGE_REL()                                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     LOAD_ZEROPAGE(zp_low);                                                                         \
-    s8 rel8 = (u8)zp8;
+    s8 rel8 = (s8)zp8;
 #define ADDR_ZEROPAGE_IND()                                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     yield(0);                                                                                      \
@@ -88,11 +96,12 @@ typedef enum : u8 {
 #define ADDR_ABSOLUTE_Y()                                                                          \
     ADDR_ABSOLUTE();                                                                               \
     addr += cpu->y;
+// todo: this is broken
 #define ADDR_ABSOLUTE_IND()                                                                        \
-    ADDR_ZEROPAGE();                                                                               \
-    u16 ind_addr = ind_addr_low | (ind_addr_high << 8);                                            \
+    ADDR_ABSOLUTE();                                                                               \
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
+    yield(0);                                                                                      \
     u16 addr = addr_low | (addr_high << 8);
 #define ADDR_ABSOLUTE_IND_X()                                                                      \
     ADDR_ABSOLUTE_IND();                                                                           \
@@ -111,16 +120,49 @@ typedef enum : u8 {
     ADDR_IMMEDIATE();                                                                              \
     ADDR_ABSOLUTE_X();
 
-// TODO: affect cpu flags
 #define INSTR_ADC(operand2)                                                                        \
+    u8 old, new;                                                                                   \
     if (cpu->status.t) {                                                                           \
-        READ(u8 zpx, ZPX);                                                                         \
+        READZPX(u8 zpx);                                                                           \
+        old = zpx;                                                                                 \
         zpx += (operand2) + cpu->status.c;                                                         \
-        yield(0);                                                                                  \
-        WRITE(ZPX, zpx);                                                                           \
+        new = zpx;                                                                                 \
+        if (cpu->status.d) {                                                                       \
+            yield(0);                                                                              \
+            if ((zpx & 0xF) > 0x9) {                                                               \
+                zpx += 0x6;                                                                        \
+            }                                                                                      \
+            if ((zpx & 0xF0) > 0x90) {                                                             \
+                zpx += 0x60;                                                                       \
+            }                                                                                      \
+        }                                                                                          \
+        WRITE(zpx_addr, zpx);                                                                      \
     } else {                                                                                       \
+        old = cpu->acc;                                                                            \
         cpu->acc += (operand2) + cpu->status.c;                                                    \
-    }
+        new = cpu->acc;                                                                            \
+        if (cpu->status.d) {                                                                       \
+            yield(0);                                                                              \
+            if ((cpu->acc & 0xF) > 0x9) {                                                          \
+                cpu->acc += 0x6;                                                                   \
+            }                                                                                      \
+            if ((cpu->acc & 0xF0) > 0x90) {                                                        \
+                cpu->acc += 0x60;                                                                  \
+            }                                                                                      \
+        }                                                                                          \
+    }                                                                                              \
+    cpu->status.c = old > (operand2);                                                              \
+    cpu->status.z = (operand2) == 0;                                                               \
+    if (((s8)old < 0 && (s8)(operand2) >= 0) || ((s8)old >= 0 && (s8)(operand2) < 0)) {            \
+        cpu->status.v = false;                                                                     \
+    } else {                                                                                       \
+        if ((s8)old >= 0 && (s8)(operand2) >= 0) {                                                 \
+            cpu->status.v = new & 0x80;                                                            \
+        } else {                                                                                   \
+            cpu->status.v = !(new & 0x80);                                                         \
+        }                                                                                          \
+    }                                                                                              \
+    cpu->status.n = new & 0x80;
 
 static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     // get MPR register number
@@ -214,4 +256,91 @@ coroutine cpu_step(void* ctxptr) {
     }
 
     stop();
+}
+
+bool cpu_test(CPU* cpu, const u8* program, u32 program_size, CPUTest* test, bool log_cycles) {
+    void* membuf = malloc(0x200000);
+    memcpy(membuf, program, program_size);
+
+    Memory* mem = calloc(1, sizeof(Memory));
+    mem_attachdev(mem, &(BusDevice){.start_addr = 0,
+                                    .end_addr = 0x1FFFFF,
+                                    .read = testmem_read,
+                                    .write = testmem_write,
+                                    .userdata = membuf});
+
+    if (!cpu) {
+        cpu = calloc(1, sizeof(CPU));
+        cpu_reset(cpu);
+    }
+
+    printf("\n==================== [ STARTING TEST ] ====================\n\n");
+
+    int cycles = 0;
+    coroutine step_coro = NULL;
+    do {
+        cycles++;
+        step_coro = coro_call(step_coro, cpu_step, &(cpu_step_ctx){cpu, mem});
+
+        if (log_cycles) {
+            printf(PRINT_FILEPOS "cycle %d\n", cycles);
+        }
+    } while (step_coro);
+    coro_free(step_coro);
+
+    if (log_cycles) {
+        printf(PRINT_FILEPOS "TOTAL CYCLES TAKEN: %d\n", cycles);
+    }
+
+    bool test_ok = true;
+
+    if (cpu->acc != test->acc && test->check.acc) {
+        printf(PRINT_FILEPOS "bad ACC: expected $%X vs $%X\n", test->acc, cpu->acc);
+        test_ok = false;
+    }
+
+    if (cpu->x != test->x && test->check.x) {
+        printf(PRINT_FILEPOS "bad X: expected $%X vs $%X\n", test->x, cpu->x);
+        test_ok = false;
+    }
+
+    if (cpu->y != test->y && test->check.y) {
+        printf(PRINT_FILEPOS "bad X: expected $%X vs $%X\n", test->y, cpu->y);
+        test_ok = false;
+    }
+
+    if (cpu->sp != test->sp && test->check.sp) {
+        printf(PRINT_FILEPOS "bad SP: expected $%X vs $%X\n", test->sp, cpu->sp);
+        test_ok = false;
+    }
+
+    if (cpu->pc != test->pc && test->check.pc) {
+        printf(PRINT_FILEPOS "bad PC: expected $%X vs $%X\n", test->pc, cpu->pc);
+        test_ok = false;
+    }
+
+    if (cycles != test->cycle_count && test->check.cycle_count) {
+        printf(PRINT_FILEPOS "bad cycle count: expected %u vs %u\n", test->cycle_count, cycles);
+        test_ok = false;
+    }
+
+    if (cpu->p != test->p && test->check.flags) {
+        printf(PRINT_FILEPOS "bad status/flags: expected %%%b vs %%%b [NVTBDIZC]\n", test->p,
+               cpu->p);
+        test_ok = false;
+    }
+
+    if (!*(u8*)(&test->check)) {
+        printf(PRINT_FILEPOS "BAD TEST: no checks enabled\n");
+        test_ok = false;
+    }
+
+    printf("\n==================== [ %s ] ====================\n\n",
+           test_ok ? "Passed! :3" : "FAILED :<");
+
+    free(cpu);
+    free(mem);
+    free(membuf);
+
+    return test_ok;
 }

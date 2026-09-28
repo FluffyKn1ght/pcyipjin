@@ -1,7 +1,7 @@
 /**
  * @file utils/yield.h
  * @brief Implements Python's "yield" system, a return command that preserves function state
- * @author fgetcat
+ * @author fgetcat, FluffyKn1ght
  */
 
 #ifndef _YIELD_H
@@ -46,12 +46,22 @@ void _yield(u64 value);
  *
  * @param corout The YieldBuf object to resume from (NULL if this is the first call)
  * @param func The coroutine function to call
- * @param arg The argument to pass to the coroutine
+ * @param ctx The argument to pass to the coroutine
  *
  * @return The saved function state (as a YieldBuf)
  * @retval NULL The coroutine has finished running
  */
-coroutine coro_call(coroutine corout, coroutine (*func)(void*), void* arg);
+coroutine coro_call(coroutine corout, coroutine (*func)(void*), void* ctx);
+
+/**
+ * @brief Calls a coroutine multiple times until it finishes (doesn't yield)
+ *
+ * @param corout The YieldBuf object to resume from (NULL if this is the first call)
+ * @param func The coroutine to call
+ * @param ctx The argument to pass to the coroutine
+ *
+ */
+void coro_call_until_done(coroutine corout, coroutine (*func)(void*), void* ctx);
 
 /**
  * @brief Frees a YieldBuf object and all of its internal buffers

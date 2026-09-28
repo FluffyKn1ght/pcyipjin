@@ -110,3 +110,10 @@ __attribute__((naked)) coroutine coro_call(coroutine corout, coroutine (*func)(v
             "leave\n"
             "ret\n");
 }
+
+void coro_call_until_done(coroutine corout, coroutine (*func)(void*), void* ctx) {
+    coroutine coro = NULL;
+    do {
+        coro_call(corout, func, ctx);
+    } while (coro);
+}
