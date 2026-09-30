@@ -24,9 +24,9 @@ ifeq ($(SHARED),1)
 _CFLAGS += -fPIC -D_SHARED
 _LDFLAGS += -shared
 ifeq ($(OS),Windows_NT)
-TARGET := $(BUILD_DIR)/$(TARGET_NAME).dll
+TARGET := $(BUILD_DIR)/lib$(TARGET_NAME).dll
 else
-TARGET := $(BUILD_DIR)/$(TARGET_NAME).so
+TARGET := $(BUILD_DIR)/lib$(TARGET_NAME).so
 endif
 else
 ifeq ($(OS),Windows_NT)
