@@ -8,7 +8,6 @@
 
 #include "pce/memory.h"
 #include "stdbool.h"
-#include "utils/yield.h"
 
 typedef struct {
     bool c : 1; /**< Carry flag (unsigned overflow/underflow) */
@@ -49,81 +48,21 @@ typedef struct {
 } CPU;
 
 /**
- * @brief Represents different checks a CPUTest can perform
- */
-typedef struct {
-    bool acc : 1;         /**< Whether to check ACC */
-    bool x : 1;           /**< Whether to check X */
-    bool y : 1;           /**< Whether to check Y */
-    bool sp : 1;          /**< Whether to check SP */
-    bool pc : 1;          /**< Whether to check PC */
-    bool cycle_count : 1; /**< Whether to check cycle count */
-    bool flags : 1;       /**< Whether to check flags/status */
-} CPUTestChecks;
-
-typedef struct {
-    u8 acc; /**< Expected ACC register */
-    u8 x;   /**< Expected X register */
-    u8 y;   /**< Expected Y register */
-    u8 sp;  /**< Expected stack pointer */
-
-    u16 pc;          /**< Expected program counter */
-    u16 cycle_count; /**< Expected CPU cycle count */
-
-    struct {
-        union {
-            CPUStatus status; /**< Expected status register, as a CPUStatus bitfield */
-            u8 p;             /**< Expected status register, as a byte */
-        };
-
-        CPUTestChecks check;
-    };
-} CPUTest;
-
-/**
  * @brief Resets the CPU state.
  *
  * @param cpu The CPU to reset
  */
 void cpu_reset(CPU* cpu);
 
-typedef struct {
-    CPU* cpu;    /**< The CPU to advance */
-    Memory* mem; /**< The memory bus the CPU is connected to */
-} cpu_step_ctx;
-
 /**
- * @brief Advances the CPU by 1 CPU clock cycle.
+ * @brief Advances the CPU by 1 instruction.
  *
- * @note This is a coroutine, call with `coro_call(ybuf, cpu_step, &(cpu_step_ctx){cpu, mem}))`
- *
- * @details This doesn't correspond to executing 1 instruction. Instead, every time this function
- * is executed, the CPU performs one bus access (read/write), advancing its internal state
- * accordingly. This means that 1 instruction can take multiple cpu_step() calls to execute fully.
- * This is also known as being "cycle accurate".
- *
- * @param ctxptr (cpu_step_ctx*) A struct containing the params to the function
+ * @param cpu The CPU to step forward
+ * @param mem The memory bus the CPU is connected to
+ * @param sync_func The function to call every time the system needs to be advanced by 1 CPU clock
+ * tick
+ * @param sync_arg The argument to pass to sync_func
  */
-coroutine cpu_step(void* ctxptr);
-
-/**
- * @brief Runs the provided program on the CPU and checks if the final CPU state matches the
- * expected state
- *
- * @note The CPU state passed into this function WILL BE FREED. The program passed into the function
- * (and the CPUTest struct) will NOT be freed.
- *
- * @details This will also print information regarding the test result/details and comparisons if it
- * fails. If the provided test doesn't have any checks enabled, it will fail automatically.
- *
- * @param cpu The initial CPU state (NULL to allocate a new one)
- * @param program Pointer to program data (will be put into RAM at address 0x00)
- * @param program_size The size of the program
- * @param test Expected result of program
- * @param log Whether to enable more detailed logging of cycle stuffs
- *
- * @return Whether the test passed or not
- */
-bool cpu_test(CPU* cpu, const u8* program, u32 program_size, CPUTest* test, bool log_cycles);
+void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg);
 
 #endif

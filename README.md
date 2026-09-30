@@ -6,4 +6,4 @@ A PC Engine/TurboGrafx-16 emulator written in C
 
 # Credits
 
-[fgetcat](https://github.com/fgetcat) - `utils/yield.h` and general programming help
+[fgetcat](https://github.com/fgetcat) - general programming help

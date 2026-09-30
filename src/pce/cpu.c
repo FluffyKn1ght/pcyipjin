@@ -1,10 +1,11 @@
 #include "pce/cpu.h"
 #include "pce/memory.h"
 #include "pce/testmem.h"
-#include "utils/yield.h"
 #include <assert.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef enum : u8 {
     TMA_MPR0 = 0x1,
@@ -17,32 +18,48 @@ typedef enum : u8 {
     TMA_MPR7 = 0x80,
 } TMAMPRReg;
 
+typedef enum : u8 {
+    OPR_NONE,        /**< No operand */
+    OPR_U8,          /**< Unsigned 8-bit operand (1 byte) */
+    OPR_S8,          /**< Signed 8-bit operand (1 byte) */
+    OPR_U8_U8,       /**< 2 unsigned 16-bit operands (2 bytes) */
+    OPR_U16,         /**< Unsigned 16-bit operand (2 bytes) */
+    OPR_U16_U16_U16, /**< 3 unsigned 16-bit operands (6 bytes) */
+} OperandType;
+
 #define VEC_RESET 0x1FFE
 #define VEC_NMI 0xFFFC
 #define VEC_TIMER 0xFFFA
 #define VEC_IRQ1 0xFFF8
 #define VEC_IRQ2 0xFFF6 // also BRK
 
+#define SYNC() sync_func(sync_arg)
+
 #define READ(dest, addr)                                                                           \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     dest = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
 
 #define WRITE(addr, value)                                                                         \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     mem_write(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)), (value));
 
 #define DUMMY_READ(addr)                                                                           \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
 
 #define LOAD_ZEROPAGE(zp_low)                                                                      \
-    READ(u8 zp8, 0x2000 | (zp_low));                                                               \
-    yield(0);
+    SYNC();                                                                                        \
+    u16 zp_physaddr = 0x2000 + ((zp_low) & 0xFF);                                                  \
+    READ(u8 zp8, zp_physaddr);
 
 #define READZPX(dest)                                                                              \
-    yield(0);                                                                                      \
-    u8 zpx_addr = 0x2000 | cpu->x;                                                                 \
+    SYNC();                                                                                        \
+    u8 zpx_addr = 0x2000 + cpu->x;                                                                 \
     READ(dest, zpx_addr);
+
+#define WRITEZPX(value)                                                                            \
+    u8 zpx_addr = 0x2000 + cpu->x;                                                                 \
+    WRITE(zpx_addr, (value));
 
 #define ADDR_IMPLIED_TMA() READ(TMAMPRReg mpr, cpu->pc++);
 #define ADDR_IMPLIED_TAI()                                                                         \
@@ -68,17 +85,17 @@ typedef enum : u8 {
     s8 rel8 = (s8)zp8;
 #define ADDR_ZEROPAGE_IND()                                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     u16 zp_addr = 0x2000 | zp_low;                                                                 \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
     u16 addr = addr_low | (addr_high << 8);
 #define ADDR_ZEROPAGE_IND_X()                                                                      \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     u16 zp_addr = 0x2000 | (zp_low + cpu->x);                                                      \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
     u16 addr = addr_low | (addr_high << 8);
@@ -88,7 +105,7 @@ typedef enum : u8 {
 #define ADDR_ABSOLUTE()                                                                            \
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     u16 addr = addr_low | (addr_high << 8);
 #define ADDR_ABSOLUTE_X()                                                                          \
     ADDR_ABSOLUTE();                                                                               \
@@ -101,7 +118,7 @@ typedef enum : u8 {
     ADDR_ABSOLUTE();                                                                               \
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
-    yield(0);                                                                                      \
+    SYNC();                                                                                        \
     u16 addr = addr_low | (addr_high << 8);
 #define ADDR_ABSOLUTE_IND_X()                                                                      \
     ADDR_ABSOLUTE_IND();                                                                           \
@@ -120,57 +137,75 @@ typedef enum : u8 {
     ADDR_IMMEDIATE();                                                                              \
     ADDR_ABSOLUTE_X();
 
-#define INSTR_ADC(operand2)                                                                        \
-    u8 old, new;                                                                                   \
-    if (cpu->status.t) {                                                                           \
-        READZPX(u8 zpx);                                                                           \
-        old = zpx;                                                                                 \
-        zpx += (operand2) + cpu->status.c;                                                         \
-        new = zpx;                                                                                 \
-        if (cpu->status.d) {                                                                       \
-            yield(0);                                                                              \
-            if ((zpx & 0xF) > 0x9) {                                                               \
-                zpx += 0x6;                                                                        \
-            }                                                                                      \
-            if ((zpx & 0xF0) > 0x90) {                                                             \
-                zpx += 0x60;                                                                       \
-            }                                                                                      \
-        }                                                                                          \
-        WRITE(zpx_addr, zpx);                                                                      \
-    } else {                                                                                       \
-        old = cpu->acc;                                                                            \
-        cpu->acc += (operand2) + cpu->status.c;                                                    \
-        new = cpu->acc;                                                                            \
-        if (cpu->status.d) {                                                                       \
-            yield(0);                                                                              \
-            if ((cpu->acc & 0xF) > 0x9) {                                                          \
-                cpu->acc += 0x6;                                                                   \
-            }                                                                                      \
-            if ((cpu->acc & 0xF0) > 0x90) {                                                        \
-                cpu->acc += 0x60;                                                                  \
-            }                                                                                      \
-        }                                                                                          \
-    }                                                                                              \
-    cpu->status.c = old > (operand2);                                                              \
-    cpu->status.z = (operand2) == 0;                                                               \
-    if (((s8)old < 0 && (s8)(operand2) >= 0) || ((s8)old >= 0 && (s8)(operand2) < 0)) {            \
-        cpu->status.v = false;                                                                     \
-    } else {                                                                                       \
-        if ((s8)old >= 0 && (s8)(operand2) >= 0) {                                                 \
-            cpu->status.v = new & 0x80;                                                            \
-        } else {                                                                                   \
-            cpu->status.v = !(new & 0x80);                                                         \
-        }                                                                                          \
-    }                                                                                              \
-    cpu->status.n = new & 0x80;
-
 static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     // get MPR register number
-    u8 mpr_idx = (logic_addr & 0xF000) >> 12;
+    u8 mpr_idx = (logic_addr & 0xF000) >> 13;
     assert(mpr_idx >= 0 && mpr_idx <= 7);
 
     // convert physical memory block ID to physical address and return it
     return (logic_addr & 0x0FFF) + (cpu->mpr[mpr_idx] * 0x2000);
+}
+
+static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+                     void* sync_arg) {
+    u8 operand_a;
+    if (cpu->status.t) {
+        READZPX(operand_a);
+    } else {
+        operand_a = cpu->acc;
+    }
+
+    u16 inter_result = operand_a + operand_b + cpu->status.c;
+    u8 final_result = inter_result;
+    if (cpu->status.d) {
+        SYNC(); // waste extra cycle
+
+        cpu->status.c = false;
+        if ((inter_result & 0xF) > 0x9) {
+            inter_result += 0x6;
+            cpu->status.c = true;
+        }
+
+        if (cpu->status.c) {
+            inter_result += 0x10;
+        }
+
+        if ((inter_result & 0xF0) > 0x90) {
+            inter_result += 0x60;
+            cpu->status.c = true;
+        } else {
+            cpu->status.c = false;
+        }
+
+        final_result = inter_result;
+    } else {
+        cpu->status.c = inter_result & 0xFF00;
+
+        final_result = inter_result;
+
+        if (final_result) {
+            if ((s8)operand_a * (s8)operand_b <= -1) {
+                cpu->status.v = false;
+            } else {
+                cpu->status.v = final_result & 0x80;
+
+                if (operand_a < 0 && operand_b < 0) {
+                    cpu->status.v = !cpu->status.v;
+                }
+            }
+        } else {
+            cpu->status.v = false;
+        }
+    }
+
+    cpu->status.n = final_result & 0x80;
+    cpu->status.z = final_result == 0;
+
+    if (cpu->status.t) {
+        WRITEZPX(final_result);
+    } else {
+        cpu->acc = final_result;
+    }
 }
 
 void cpu_reset(CPU* cpu) {
@@ -189,158 +224,68 @@ void cpu_reset(CPU* cpu) {
     // TODO: HSM pin goes low
 }
 
-coroutine cpu_step(void* ctxptr) {
-    cpu_step_ctx* ctx = (cpu_step_ctx*)ctxptr;
-    CPU* cpu = ctx->cpu;
-    Memory* mem = ctx->mem;
-
+void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
+    SYNC();
     u8 opcode = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, cpu->pc++));
 
     switch (opcode) {
     case 0x69: { // adc #xx
         ADDR_IMMEDIATE();
-        INSTR_ADC(imm8);
+        _alu_adc(cpu, mem, imm8, sync_func, sync_arg);
         break;
     }
     case 0x65: { // adc zz
         ADDR_ZEROPAGE();
-        INSTR_ADC(zp8);
+        _alu_adc(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x75: { // adc zz, x
         ADDR_ZEROPAGE_X();
-        INSTR_ADC(zp8);
+        _alu_adc(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x72: { // adc (zz)
         ADDR_ZEROPAGE_IND();
         READ(u8 ind_value, addr);
-        INSTR_ADC(ind_value);
+        _alu_adc(cpu, mem, ind_value, sync_func, sync_arg);
         break;
     }
     case 0x61: { // adc (zz, x)
         ADDR_ZEROPAGE_IND_X();
         READ(u8 ind_value, addr);
-        INSTR_ADC(ind_value);
+        _alu_adc(cpu, mem, ind_value, sync_func, sync_arg);
         break;
     }
     case 0x71: { // adc (zz), y
         ADDR_ZEROPAGE_IND_Y();
         READ(u8 ind_value, addr);
-        INSTR_ADC(ind_value);
+        _alu_adc(cpu, mem, ind_value, sync_func, sync_arg);
         break;
     }
     case 0x6D: { // adc hell
         ADDR_ABSOLUTE();
         READ(u8 abs_value, addr);
-        INSTR_ADC(abs_value);
+        _alu_adc(cpu, mem, abs_value, sync_func, sync_arg);
         break;
     }
     case 0x7D: { // adc hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs_value, addr);
-        INSTR_ADC(abs_value);
+        _alu_adc(cpu, mem, abs_value, sync_func, sync_arg);
         break;
     }
     case 0x79: { // adc hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs_value, addr);
-        INSTR_ADC(abs_value);
+        _alu_adc(cpu, mem, abs_value, sync_func, sync_arg);
         break;
     }
     default: {
-        printf("unknown opcode\n");
+        printf(PRINT_FILEPOS "unknown opcode $%x\n", opcode);
         abort();
         break;
     }
     }
 
-    stop();
-}
-
-bool cpu_test(CPU* cpu, const u8* program, u32 program_size, CPUTest* test, bool log_cycles) {
-    void* membuf = malloc(0x200000);
-    memcpy(membuf, program, program_size);
-
-    Memory* mem = calloc(1, sizeof(Memory));
-    mem_attachdev(mem, &(BusDevice){.start_addr = 0,
-                                    .end_addr = 0x1FFFFF,
-                                    .read = testmem_read,
-                                    .write = testmem_write,
-                                    .userdata = membuf});
-
-    if (!cpu) {
-        cpu = calloc(1, sizeof(CPU));
-        cpu_reset(cpu);
-    }
-
-    printf("\n==================== [ STARTING TEST ] ====================\n\n");
-
-    int cycles = 0;
-    coroutine step_coro = NULL;
-    do {
-        cycles++;
-        step_coro = coro_call(step_coro, cpu_step, &(cpu_step_ctx){cpu, mem});
-
-        if (log_cycles) {
-            printf(PRINT_FILEPOS "cycle %d\n", cycles);
-        }
-    } while (step_coro);
-    coro_free(step_coro);
-
-    if (log_cycles) {
-        printf(PRINT_FILEPOS "TOTAL CYCLES TAKEN: %d\n", cycles);
-    }
-
-    bool test_ok = true;
-
-    if (cpu->acc != test->acc && test->check.acc) {
-        printf(PRINT_FILEPOS "bad ACC: expected $%X vs $%X\n", test->acc, cpu->acc);
-        test_ok = false;
-    }
-
-    if (cpu->x != test->x && test->check.x) {
-        printf(PRINT_FILEPOS "bad X: expected $%X vs $%X\n", test->x, cpu->x);
-        test_ok = false;
-    }
-
-    if (cpu->y != test->y && test->check.y) {
-        printf(PRINT_FILEPOS "bad X: expected $%X vs $%X\n", test->y, cpu->y);
-        test_ok = false;
-    }
-
-    if (cpu->sp != test->sp && test->check.sp) {
-        printf(PRINT_FILEPOS "bad SP: expected $%X vs $%X\n", test->sp, cpu->sp);
-        test_ok = false;
-    }
-
-    if (cpu->pc != test->pc && test->check.pc) {
-        printf(PRINT_FILEPOS "bad PC: expected $%X vs $%X\n", test->pc, cpu->pc);
-        test_ok = false;
-    }
-
-    if (cycles != test->cycle_count && test->check.cycle_count) {
-        printf(PRINT_FILEPOS "bad cycle count: expected %u vs %u\n", test->cycle_count, cycles);
-        test_ok = false;
-    }
-
-    if (cpu->p != test->p && test->check.flags) {
-        printf(PRINT_FILEPOS "bad status/flags: expected %%%b vs %%%b [NVTBDIZC]\n", test->p,
-               cpu->p);
-        test_ok = false;
-    }
-
-    if (!*(u8*)(&test->check)) {
-        printf(PRINT_FILEPOS "BAD TEST: no checks enabled\n");
-        test_ok = false;
-    }
-
-    printf("\n==================== [ %s ] ====================\n\n",
-           test_ok ? "Passed! :3" : "FAILED :<");
-
-    free(cpu);
-    free(mem);
-    free(membuf);
-
-    return test_ok;
+    cpu->status.t = 0;
 }
