@@ -29,3 +29,11 @@ void mem_write(Memory* mem, MemoryAccess access, u32 addr, u8 value) {
         }
     }
 }
+
+void mem_free(Memory* mem) {
+    for (int i = 0; i < mem->device_count; i++) {
+        mem->devices[i].free(mem->devices + i);
+    }
+
+    free(mem);
+}

@@ -17,6 +17,7 @@ typedef enum : u8 {
 
 typedef u8 (*BusReadFunc)(void*, MemoryAccess, u32);
 typedef void (*BusWriteFunc)(void*, MemoryAccess, u32, u8);
+typedef void (*BusFreeFunc)(void*);
 
 /**
  * @brief Represents a device attached to a certain address range of a memory bus.
@@ -26,8 +27,8 @@ typedef struct {
     u32 end_addr;       /**< End of address range */
     BusReadFunc read;   /**< Read function */
     BusWriteFunc write; /**< Write function */
-    void*
-        userdata; /**< Argument that will be passed into BusDevice::read() and BusDevice::write() */
+    BusFreeFunc free;   /**< Free function */
+    void* userdata;     /**< Argument that will be passed into BusDevice functions */
 } BusDevice;
 
 /**
@@ -71,5 +72,12 @@ u8 mem_read(Memory* mem, MemoryAccess access, u32 addr);
  * @return The read value
  */
 void mem_write(Memory* mem, MemoryAccess access, u32 addr, u8 value);
+
+/**
+ * @brief Frees a Memory bus and all of its BusDevice objects
+ *
+ * @param mem The Memory bus to free
+ */
+void mem_free(Memory* mem);
 
 #endif

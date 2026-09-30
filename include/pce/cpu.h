@@ -45,14 +45,20 @@ typedef struct {
     // TODO: I/O (K and O ports)
 
     u8 mpr[8]; /**< Mapping registers (MPR0-MPR7) */
+
+    bool high_speed; /**< Whether the CPU is running at 7MHz high speed */
 } CPU;
 
 /**
  * @brief Resets the CPU state.
  *
  * @param cpu The CPU to reset
+ * @param mem The memory bus the CPU is connected to
+ * @param sync_func The function to call every time the system needs to be advanced by 1 CPU clock
+ * tick
+ * @param sync_arg The argument to pass to sync_func
  */
-void cpu_reset(CPU* cpu);
+void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg);
 
 /**
  * @brief Advances the CPU by 1 instruction.

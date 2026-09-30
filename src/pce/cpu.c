@@ -27,7 +27,7 @@ typedef enum : u8 {
     OPR_U16_U16_U16, /**< 3 unsigned 16-bit operands (6 bytes) */
 } OperandType;
 
-#define VEC_RESET 0x1FFE
+#define VEC_RESET 0xFFFE
 #define VEC_NMI 0xFFFC
 #define VEC_TIMER 0xFFFA
 #define VEC_IRQ1 0xFFF8
@@ -208,20 +208,24 @@ static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void
     }
 }
 
-void cpu_reset(CPU* cpu) {
+void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     cpu->status.i = true;
     cpu->status.d = false;
     cpu->mpr[7] = 0;
     // TODO: Stop timer
     // TODO: Clear interrupt disable register in memory
     // TODO: Clear TIQ
-    // TODO: Set low speed mode
+    cpu->high_speed = false;
     // TODO: Output H to port O
     cpu->status.t = false;
     // TODO: something is said about "ready state being cleared"
     // TODO: SYNC pin goes low
     // TODO: system clock is output to SX pin
     // TODO: HSM pin goes low
+
+    READ(u8 reset_routine_low, VEC_RESET);
+    READ(u8 reset_routine_high, VEC_RESET + 1);
+    cpu->pc = reset_routine_low | (reset_routine_high << 8);
 }
 
 void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
