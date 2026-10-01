@@ -26,26 +26,26 @@ typedef enum : u8 {
 #define VEC_IRQ2 0xFFF6 // also BRK
 
 #ifdef _CPU_DEBUG
-#define DBGPRINT(msg, a, b) printf(FILEPOS msg "\n", (a), (b));
+#define DBGPRINT(msg, ...) printf(FILEPOS msg "\n" __VA_OPT__(, ) __VA_ARGS__);
 #else
-#define DBGPRINT(msg, a, b)
+#define DBGPRINT(msg, ...)
 #endif
 
 #define SYNC() sync_func(sync_arg);
 
 #define READ(dest, addr)                                                                           \
     SYNC();                                                                                        \
-    DBGPRINT("Read from $%04X", (addr), 0);                                                        \
+    DBGPRINT("Read from $%04X", (addr));                                                           \
     dest = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
 
 #define WRITE(addr, value)                                                                         \
     SYNC();                                                                                        \
-    DBGPRINT("Write to $%04X with value $%04X", (addr), (value));                                  \
+    DBGPRINT("Write to $%04X with value $%02X", (addr), (value));                                  \
     mem_write(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)), (value));
 
 #define DUMMY_READ(addr)                                                                           \
     SYNC();                                                                                        \
-    DBGPRINT("Dummy read from $%04X", (addr), 0);                                                  \
+    DBGPRINT("Dummy read from $%04X", (addr));                                                     \
     mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
 
 #define CALC_ZP_ADDR(dest, low)                                                                    \
@@ -54,14 +54,14 @@ typedef enum : u8 {
 
 #define LOAD_ZEROPAGE(zp_low)                                                                      \
     CALC_ZP_ADDR(u16 zp_addr, zp_low);                                                             \
-    DBGPRINT("LOAD_ZEROPAGE: Read from zeropage", 0, 0);                                           \
+    DBGPRINT("LOAD_ZEROPAGE: Read from zeropage");                                                 \
     READ(u8 zp8, zp_addr);
 
 #define READZPX(dest)                                                                              \
-    DBGPRINT("READZPX: Calculate zeropage address", 0, 0);                                         \
+    DBGPRINT("READZPX: Calculate zeropage address");                                               \
     SYNC();                                                                                        \
     u8 zpx_addr = 0x2000 + cpu->x;                                                                 \
-    DBGPRINT("READZPX: Read from zeropage", 0, 0);                                                 \
+    DBGPRINT("READZPX: Read from zeropage");                                                       \
     READ(dest, zpx_addr);
 
 #define WRITEZPX(value)                                                                            \
@@ -82,40 +82,40 @@ typedef enum : u8 {
     READ(cpu->acc, cpu->pc++);                                                                     \
     READ(cpu->lh, cpu->pc++);
 #define ADDR_IMMEDIATE()                                                                           \
-    DBGPRINT("will now read imm8", 0, 0);                                                          \
+    DBGPRINT("will now read imm8");                                                                \
     READ(u8 imm8, cpu->pc++);
 #define ADDR_ZEROPAGE()                                                                            \
-    DBGPRINT("will now read zp_low", 0, 0);                                                        \
+    DBGPRINT("will now read zp_low");                                                              \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     LOAD_ZEROPAGE(zp_low);
 #define ADDR_ZEROPAGE_X()                                                                          \
-    DBGPRINT("will now read zp_low + x", 0, 0);                                                    \
+    DBGPRINT("will now read zp_low + x");                                                          \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     LOAD_ZEROPAGE(zp_low + cpu->x);
 #define ADDR_ZEROPAGE_Y()                                                                          \
-    DBGPRINT("will now read zp_low + y", 0, 0);                                                    \
+    DBGPRINT("will now read zp_low + y");                                                          \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     LOAD_ZEROPAGE(zp_low + cpu->y);
 #define ADDR_ZEROPAGE_REL()                                                                        \
-    DBGPRINT("will now read zp_low", 0, 0);                                                        \
+    DBGPRINT("will now read zp_low");                                                              \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     LOAD_ZEROPAGE(zp_low);                                                                         \
     s8 rel8 = (s8)zp8;
 #define ADDR_ZEROPAGE_IND()                                                                        \
-    DBGPRINT("will now read zp_low", 0, 0);                                                        \
+    DBGPRINT("will now read zp_low");                                                              \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     CALC_ZP_ADDR(u16 zp_addr, zp_low);                                                             \
-    DBGPRINT("will now read addr from zeropage (2 bytes)", 0, 0);                                  \
+    DBGPRINT("will now read addr from zeropage (2 bytes)");                                        \
     SYNC();                                                                                        \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
     u16 addr = addr_low | (addr_high << 8);                                                        \
     READ(u8 ind8, addr);
 #define ADDR_ZEROPAGE_IND_X()                                                                      \
-    DBGPRINT("will now read zp_low", 0, 0);                                                        \
+    DBGPRINT("will now read zp_low");                                                              \
     READ(u8 zp_low, cpu->pc++);                                                                    \
     CALC_ZP_ADDR(u16 zp_addr, zp_low + cpu->x);                                                    \
-    DBGPRINT("will read addr from zeropage (2 bytes)", 0, 0);                                      \
+    DBGPRINT("will read addr from zeropage (2 bytes)");                                            \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
     u16 addr = addr_low | (addr_high << 8);                                                        \
@@ -124,7 +124,7 @@ typedef enum : u8 {
     ADDR_ZEROPAGE_IND();                                                                           \
     addr += cpu->y;
 #define ADDR_ABSOLUTE()                                                                            \
-    DBGPRINT("will now read absolute addr (2 bytes)", 0, 0);                                       \
+    DBGPRINT("will now read absolute addr (2 bytes)");                                             \
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
     SYNC();                                                                                        \
@@ -137,7 +137,7 @@ typedef enum : u8 {
     addr += cpu->y;
 #define ADDR_ABSOLUTE_IND()                                                                        \
     ADDR_ABSOLUTE();                                                                               \
-    DBGPRINT("will now read absolute addr (2 bytes)", 0, 0);                                       \
+    DBGPRINT("will now read absolute addr (2 bytes)");                                             \
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
     DBGPRINT("calculate indir address");                                                           \
@@ -148,7 +148,7 @@ typedef enum : u8 {
     addr += cpu->x;
 // todo: might need extra cycle
 #define ADDR_RELATIVE()                                                                            \
-    DBGPRINT("read relative", 0, 0);                                                               \
+    DBGPRINT("read relative");                                                                     \
     READ(s8 offset, cpu->pc++);
 #define ADDR_IMM_ZEROPAGE()                                                                        \
     ADDR_IMMEDIATE();                                                                              \
@@ -167,12 +167,24 @@ typedef enum : u8 {
     cpu->status.n = (value) & 0x80;                                                                \
     cpu->status.z = (value) == 0;
 
-#define GET_OPERAND_A()                                                                            \
+#define ALU_GET_OPRERAND_A()                                                                       \
     if (cpu->status.t) {                                                                           \
         READZPX(operand_a);                                                                        \
     } else {                                                                                       \
         operand_a = cpu->acc;                                                                      \
     }
+
+#define STACK_PUSH(what)                                                                           \
+    WRITE(0x2100 | cpu->sp, (what));                                                               \
+    SYNC();                                                                                        \
+    cpu->sp--;
+
+#define STACK_PULL(dest)                                                                           \
+    READ(u8 pulled_value, 0x2100 | cpu->sp);                                                       \
+    SYNC();                                                                                        \
+    dest = pulled_value;                                                                           \
+    SYNC();                                                                                        \
+    cpu->sp++;
 
 static inline u8 _mpr_tma_2i_to_idx(u8 tma_2i) {
     for (int idx = 0; idx < countof(MPR_TMA_2I_VALUES); idx++) {
@@ -196,7 +208,7 @@ static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
 static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
                      void* sync_arg) {
     u8 operand_a;
-    GET_OPERAND_A();
+    ALU_GET_OPRERAND_A();
 
     u16 inter_result = operand_a + operand_b + cpu->status.c;
     u8 final_result = inter_result;
@@ -264,6 +276,7 @@ void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) 
     // TODO: SYNC pin goes low
     // TODO: system clock is output to SX pin
     // TODO: HSM pin goes low
+    // TODO: fill registers with garbage
 
     READ(u8 reset_routine_low, VEC_RESET);
     READ(u8 reset_routine_high, VEC_RESET + 1);
@@ -672,6 +685,40 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         break;
     }
 
+    case 0x48: { // pha
+        STACK_PUSH(cpu->acc);
+        break;
+    }
+    case 0x08: { // php
+        STACK_PUSH(cpu->p);
+        break;
+    }
+    case 0xDA: { // phx
+        STACK_PUSH(cpu->x);
+        break;
+    }
+    case 0x5A: { // phy
+        STACK_PUSH(cpu->y);
+        break;
+    }
+
+    case 0x68: { // pla
+        STACK_PULL(cpu->acc);
+        break;
+    }
+    case 0x28: { // plp
+        STACK_PULL(cpu->p);
+        break;
+    }
+    case 0xFA: { // plx
+        STACK_PULL(cpu->x);
+        break;
+    }
+    case 0x7A: { // ply
+        STACK_PULL(cpu->y);
+        break;
+    }
+
     default: {
         // TODO: not crash the entire program with abort()
         printf(FILEPOS "unknown opcode $%02x\n", opcode);
@@ -680,5 +727,7 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     }
 
-    cpu->status.t = 0;
+    if (opcode != 0xF4) {
+        cpu->status.t = 0;
+    }
 }

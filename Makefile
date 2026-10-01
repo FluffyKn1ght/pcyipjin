@@ -54,7 +54,7 @@ _CFLAGS += $(shell pkgconf --cflags $(LIBS_PKGCONF))
 _LDFLAGS += $(shell pkgconf --libs $(LIBS_PKGCONF))
 endif
 
-_CFLAGS += -std=gnu23 -pedantic -masm=intel -Wno-format-extra-args
+_CFLAGS += -std=gnu23 -pedantic -masm=intel
 
 C_SOURCES := $(shell find $(SRC_DIR) -type f -name "*.c")
 C_OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(C_SOURCES))
