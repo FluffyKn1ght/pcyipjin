@@ -10,15 +10,6 @@
 
 const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
 
-typedef enum : u8 {
-    OPR_NONE,        /**< No operand */
-    OPR_U8,          /**< Unsigned 8-bit operand (1 byte) */
-    OPR_S8,          /**< Signed 8-bit operand (1 byte) */
-    OPR_U8_U8,       /**< 2 unsigned 16-bit operands (2 bytes) */
-    OPR_U16,         /**< Unsigned 16-bit operand (2 bytes) */
-    OPR_U16_U16_U16, /**< 3 unsigned 16-bit operands (6 bytes) */
-} OperandType;
-
 #define VEC_RESET 0xFFFE
 #define VEC_NMI 0xFFFC
 #define VEC_TIMER 0xFFFA
