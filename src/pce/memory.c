@@ -18,6 +18,7 @@ u8 mem_read(Memory* mem, MemoryAccess access, u32 addr) {
         }
     }
 
+    TRAP();
     return UNDEFINED;
 }
 
@@ -28,6 +29,8 @@ void mem_write(Memory* mem, MemoryAccess access, u32 addr, u8 value) {
             return;
         }
     }
+
+    TRAP();
 }
 
 void mem_free(Memory* mem) {

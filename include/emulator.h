@@ -14,18 +14,23 @@
 #define VCE_CLOCKDIV_7MHZ 3
 #define VCE_CLOCKDIV_5MHZ 4
 
-/**
- * @brief Represents a pcyipjin emulator, with all of its state
- */
 #include "pce/cpu.h"
 #include "pce/memory.h"
-typedef struct {
-    CPU* cpu;
-    Memory* mem;
 
-    u16 vce_clock_modulo;
-    u16 vce_clock;
-    u16 timer_clock;
+/**
+ * @brief Represents a pcyipjin emulator instance
+ */
+typedef struct {
+    CPU* cpu;    /**< The CPU this emulator uses */
+    Memory* mem; /**< The Memory bus this emulator uses */
+
+    u64 cycles; /**< Master clock cycle counter */
+
+    u16 vce_clock_modulo; /**< VCE clock module */
+    u16 vce_clock;        /**< VCE clock counter */
+
+    // TODO: Move to dedicated file
+    u16 timer_clock; /**< Timer clock counter */
 } Emulator;
 
 /**

@@ -6,7 +6,7 @@
 #include <string.h>
 #ifndef _SHARED
 
-const u8 MEMDATA[2] = {0x69, 0x01};
+const u8 MEMDATA[3] = {0xE9, 0x12};
 
 int argc;
 char** argv;
@@ -20,12 +20,14 @@ int main(int _argc, char** _argv) {
 
     Emulator* emu = emu_create();
 
-    mem_attachdev(emu->mem, &(BusDevice){.start_addr = 0x00000,
+    mem_attachdev(emu->mem, &(BusDevice){.start_addr = 0x0,
                                          .end_addr = PHYSADDR_MASK,
                                          .read = testmem_read,
                                          .write = testmem_write,
                                          .free = free,
                                          .userdata = membuf});
+
+    emu_reset(emu, true);
 
     while (true) {
         emu_step(emu);

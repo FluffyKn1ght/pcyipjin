@@ -3,9 +3,9 @@
 #define STR_(x) #x
 #define STR(x) STR_(x)
 
-#define PRINT_FILEPOS "[" __FILE__ ":" STR(__LINE__) "] "
+#define FILEPOS "[" __FILE__ ":" STR(__LINE__) "] "
 
-#define PHYSADDR_MASK 0x1fffff
+#define TRAP() __asm__("int3");
 
 typedef uint8_t u8;
 typedef int8_t s8;
@@ -17,3 +17,5 @@ typedef uint64_t u64;
 typedef int64_t s64;
 typedef float f32;
 typedef double f64;
+
+#define PHYSADDR_MASK 0x1fffff

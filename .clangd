@@ -1,3 +1,6 @@
 CompileFlags:
     Add:
         - -ferror-limit=0
+
+Diagnostics:
+   Suppress: format-extra-args
