@@ -56,12 +56,14 @@ typedef enum : u8 {
     DBGPRINT("Dummy read from $%04X", (addr), 0);                                                  \
     mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
 
-#define LOAD_ZEROPAGE(zp_low)                                                                      \
-    DBGPRINT("LOAD_ZEROPAGE: Calculate zeropage address", 0, 0);                                   \
+#define CALC_ZP_ADDR(dest, low)                                                                    \
     SYNC();                                                                                        \
-    u16 zp_physaddr = 0x2000 + ((zp_low) & 0xFF);                                                  \
+    dest = 0x2000 | ((low) & 0xFF);
+
+#define LOAD_ZEROPAGE(zp_low)                                                                      \
+    CALC_ZP_ADDR(u16 zp_addr, zp_low);                                                             \
     DBGPRINT("LOAD_ZEROPAGE: Read from zeropage", 0, 0);                                           \
-    READ(u8 zp8, zp_physaddr);
+    READ(u8 zp8, zp_addr);
 
 #define READZPX(dest)                                                                              \
     DBGPRINT("READZPX: Calculate zeropage address", 0, 0);                                         \
@@ -110,9 +112,7 @@ typedef enum : u8 {
 #define ADDR_ZEROPAGE_IND()                                                                        \
     DBGPRINT("will now read zp_low", 0, 0);                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    DBGPRINT("calculate zeropage addr", 0, 0);                                                     \
-    SYNC();                                                                                        \
-    u16 zp_addr = 0x2000 | zp_low;                                                                 \
+    CALC_ZP_ADDR(u16 zp_addr, zp_low);                                                             \
     DBGPRINT("will now read addr from zeropage (2 bytes)", 0, 0);                                  \
     SYNC();                                                                                        \
     READ(u8 addr_low, zp_addr);                                                                    \
@@ -122,9 +122,7 @@ typedef enum : u8 {
 #define ADDR_ZEROPAGE_IND_X()                                                                      \
     DBGPRINT("will now read zp_low", 0, 0);                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
-    DBGPRINT("calculate zeropage addr (+ x)", 0, 0);                                               \
-    SYNC();                                                                                        \
-    u16 zp_addr = 0x2000 | (zp_low + cpu->x);                                                      \
+    CALC_ZP_ADDR(u16 zp_addr, zp_low + cpu->x);                                                    \
     DBGPRINT("will read addr from zeropage (2 bytes)", 0, 0);                                      \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
@@ -138,8 +136,7 @@ typedef enum : u8 {
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
     SYNC();                                                                                        \
-    u16 addr = addr_low | (addr_high << 8);                                                        \
-    READ(u8 abs8, addr);
+    u16 addr = addr_low | (addr_high << 8);
 #define ADDR_ABSOLUTE_X()                                                                          \
     ADDR_ABSOLUTE();                                                                               \
     addr += cpu->x;
@@ -309,17 +306,19 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0x6D: { // adc hell
         ADDR_ABSOLUTE();
-        READ(u8 abs_value, addr);
-        _alu_adc(cpu, mem, abs_value, sync_func, sync_arg);
+        READ(u8 abs8, addr);
+        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x7D: { // adc hhll, x
         ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
         _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x79: { // adc hhll, y
         ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
         _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
@@ -356,16 +355,19 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0xED: { // sbc hhll
         ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
         _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xFD: { // sbc hhll, x
         ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
         _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xF9: { // sbc hhll, y
         ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
         _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
@@ -408,18 +410,21 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0xAD: { // lda hhll
         ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
         cpu->acc = abs8;
         SETZN(abs8);
         break;
     }
     case 0xBD: { // lda hhll, x
         ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
         cpu->acc = abs8;
         SETZN(abs8);
         break;
     }
     case 0xB9: { // lda hhll, y
         ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
         cpu->acc = abs8;
         SETZN(abs8);
         break;
@@ -445,12 +450,14 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0xAE: { // ldx hhll
         ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
         cpu->x = abs8;
         SETZN(abs8);
         break;
     }
     case 0xBE: { // ldx hhll, y
         ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
         cpu->x = abs8;
         SETZN(abs8);
         break;
@@ -476,14 +483,134 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0xAC: { // ldy hhll
         ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
         cpu->y = abs8;
         SETZN(abs8);
         break;
     }
     case 0xBC: { // ldy hhll, x
         ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
         cpu->y = abs8;
         SETZN(abs8);
+        break;
+    }
+
+    case 0x85: { // sta zz
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 addr, imm8);
+        WRITE(addr, cpu->acc);
+        break;
+    }
+    case 0x95: { // sta zz, x
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 addr, imm8 + cpu->x);
+        WRITE(addr, cpu->acc);
+        break;
+    }
+    case 0x92: { // sta (zz)
+        ADDR_ZEROPAGE();
+        SYNC();
+        CALC_ZP_ADDR(u16 addr, zp8);
+        WRITE(zp_addr, cpu->acc);
+        break;
+    }
+    case 0x81: { // sta (zz, x)
+        ADDR_ZEROPAGE_X();
+        SYNC();
+        CALC_ZP_ADDR(u16 addr, zp8);
+        WRITE(zp_addr, cpu->acc);
+        break;
+    }
+    case 0x91: { // sta (zz), y
+        ADDR_ZEROPAGE();
+        SYNC();
+        CALC_ZP_ADDR(u16 addr, zp8 + cpu->y);
+        WRITE(zp_addr, cpu->acc);
+        break;
+    }
+    case 0x8D: { // sta hhll
+        ADDR_ABSOLUTE();
+        WRITE(addr, cpu->acc);
+        break;
+    }
+    case 0x9D: { // sta hhll, x
+        ADDR_ABSOLUTE_X();
+        WRITE(addr, cpu->acc);
+        break;
+    }
+    case 0x99: { // sta hhll, y
+        ADDR_ABSOLUTE_Y();
+        WRITE(addr, cpu->acc);
+        break;
+    }
+
+    case 0x86: { // stx zz
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 addr, imm8);
+        WRITE(addr, cpu->x);
+        break;
+    }
+    case 0x96: { // stx zz, y
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 addr, imm8 + cpu->y);
+        WRITE(addr, cpu->x);
+        break;
+    }
+    case 0x8E: { // stx hhll
+        ADDR_ABSOLUTE();
+        WRITE(addr, cpu->x);
+        break;
+    }
+
+    case 0x84: { // sty zz
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 addr, imm8);
+        WRITE(addr, cpu->y);
+        break;
+    }
+    case 0x94: { // sty zz, x
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 addr, imm8 + cpu->x);
+        WRITE(addr, cpu->y);
+        break;
+    }
+    case 0x8C: { // sty hhll
+        ADDR_ABSOLUTE();
+        WRITE(addr, cpu->y);
+        break;
+    }
+
+    case 0x64: { // stz zz
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 zp_addr, imm8);
+        WRITE(zp_addr, 0);
+        break;
+    }
+    case 0x74: { // stz zz, x
+        ADDR_IMMEDIATE();
+        CALC_ZP_ADDR(u16 zp_addr, imm8 + cpu->x);
+        WRITE(zp_addr, 0);
+        break;
+    }
+    case 0x9C: { // stz hhll
+        ADDR_ABSOLUTE();
+        WRITE(addr, 0);
+        break;
+    }
+    case 0x9E: { // stz hhll, x
+        ADDR_ABSOLUTE_X();
+        WRITE(addr, 0);
+        break;
+    }
+
+    case 0x02: { // sxy
+        u8 rx = cpu->x;
+        u8 ry = cpu->y;
+        SYNC();
+        cpu->x = ry;
+        SYNC();
+        cpu->y = rx;
         break;
     }
 
