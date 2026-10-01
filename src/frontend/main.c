@@ -6,7 +6,7 @@
 #include <string.h>
 #ifndef _SHARED
 
-const u8 MEMDATA[3] = {0xE9, 0x12};
+const u8 MEMDATA[3] = {0xAE, 0x12, 0x34};
 
 int argc;
 char** argv;

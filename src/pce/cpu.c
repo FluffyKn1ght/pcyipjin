@@ -117,7 +117,8 @@ typedef enum : u8 {
     SYNC();                                                                                        \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
-    u16 addr = addr_low | (addr_high << 8);
+    u16 addr = addr_low | (addr_high << 8);                                                        \
+    READ(u8 ind8, addr);
 #define ADDR_ZEROPAGE_IND_X()                                                                      \
     DBGPRINT("will now read zp_low", 0, 0);                                                        \
     READ(u8 zp_low, cpu->pc++);                                                                    \
@@ -127,7 +128,8 @@ typedef enum : u8 {
     DBGPRINT("will read addr from zeropage (2 bytes)", 0, 0);                                      \
     READ(u8 addr_low, zp_addr);                                                                    \
     READ(u8 addr_high, zp_addr + 1);                                                               \
-    u16 addr = addr_low | (addr_high << 8);
+    u16 addr = addr_low | (addr_high << 8);                                                        \
+    READ(u8 ind8, addr);
 #define ADDR_ZEROPAGE_IND_Y()                                                                      \
     ADDR_ZEROPAGE_IND();                                                                           \
     addr += cpu->y;
@@ -136,14 +138,14 @@ typedef enum : u8 {
     READ(u8 addr_low, cpu->pc++);                                                                  \
     READ(u8 addr_high, cpu->pc++);                                                                 \
     SYNC();                                                                                        \
-    u16 addr = addr_low | (addr_high << 8);
+    u16 addr = addr_low | (addr_high << 8);                                                        \
+    READ(u8 abs8, addr);
 #define ADDR_ABSOLUTE_X()                                                                          \
     ADDR_ABSOLUTE();                                                                               \
     addr += cpu->x;
 #define ADDR_ABSOLUTE_Y()                                                                          \
     ADDR_ABSOLUTE();                                                                               \
     addr += cpu->y;
-// todo: this is broken
 #define ADDR_ABSOLUTE_IND()                                                                        \
     ADDR_ABSOLUTE();                                                                               \
     DBGPRINT("will now read absolute addr (2 bytes)", 0, 0);                                       \
@@ -172,6 +174,17 @@ typedef enum : u8 {
     ADDR_IMMEDIATE();                                                                              \
     ADDR_ABSOLUTE_X();
 
+#define SETZN(value)                                                                               \
+    cpu->status.n = (value) & 0x80;                                                                \
+    cpu->status.z = (value) == 0;
+
+#define GET_OPERAND_A()                                                                            \
+    if (cpu->status.t) {                                                                           \
+        READZPX(operand_a);                                                                        \
+    } else {                                                                                       \
+        operand_a = cpu->acc;                                                                      \
+    }
+
 static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     // get MPR register number
     u8 mpr_idx = (logic_addr & 0xF000) >> 13;
@@ -184,11 +197,7 @@ static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
 static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
                      void* sync_arg) {
     u8 operand_a;
-    if (cpu->status.t) {
-        READZPX(operand_a);
-    } else {
-        operand_a = cpu->acc;
-    }
+    GET_OPERAND_A();
 
     u16 inter_result = operand_a + operand_b + cpu->status.c;
     u8 final_result = inter_result;
@@ -233,8 +242,7 @@ static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void
         }
     }
 
-    cpu->status.n = final_result & 0x80;
-    cpu->status.z = final_result == 0;
+    SETZN(final_result);
 
     if (cpu->status.t) {
         WRITEZPX(final_result);
@@ -269,7 +277,7 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     cpu->pc++;
 
     switch (opcode) {
-    case 0x69: { // adc #xx
+    case 0x69: { // adc #nn
         ADDR_IMMEDIATE();
         _alu_adc(cpu, mem, imm8, sync_func, sync_arg);
         break;
@@ -286,20 +294,17 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0x72: { // adc (zz)
         ADDR_ZEROPAGE_IND();
-        READ(u8 ind_value, addr);
-        _alu_adc(cpu, mem, ind_value, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x61: { // adc (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        READ(u8 ind_value, addr);
-        _alu_adc(cpu, mem, ind_value, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x71: { // adc (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        READ(u8 ind_value, addr);
-        _alu_adc(cpu, mem, ind_value, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x6D: { // adc hell
@@ -310,18 +315,16 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0x7D: { // adc hhll, x
         ADDR_ABSOLUTE_X();
-        READ(u8 abs_value, addr);
-        _alu_adc(cpu, mem, abs_value, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x79: { // adc hhll, y
         ADDR_ABSOLUTE_Y();
-        READ(u8 abs_value, addr);
-        _alu_adc(cpu, mem, abs_value, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
 
-    case 0xE9: { // sbc #xx
+    case 0xE9: { // sbc #nn
         ADDR_IMMEDIATE();
         _alu_adc(cpu, mem, imm8 ^ 0xFF, sync_func, sync_arg);
         break;
@@ -338,38 +341,149 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
     case 0xF2: { // sbc (zz)
         ADDR_ZEROPAGE_IND();
-        READ(u8 ind_value, addr);
-        _alu_adc(cpu, mem, ind_value ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xE1: { // sbc (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        READ(u8 ind_value, addr);
-        _alu_adc(cpu, mem, ind_value ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xF1: { // sbc (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        READ(u8 ind_value, addr);
-        _alu_adc(cpu, mem, ind_value ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xED: { // sbc hhll
         ADDR_ABSOLUTE();
-        READ(u8 abs_value, addr);
-        _alu_adc(cpu, mem, abs_value ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xFD: { // sbc hhll, x
         ADDR_ABSOLUTE_X();
-        READ(u8 abs_value, addr);
-        _alu_adc(cpu, mem, abs_value ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xF9: { // sbc hhll, y
         ADDR_ABSOLUTE_Y();
-        READ(u8 abs_value, addr);
-        _alu_adc(cpu, mem, abs_value ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
+        break;
+    }
+
+    case 0xA9: { // lda #nn
+        ADDR_IMMEDIATE();
+        cpu->acc = imm8;
+        SETZN(imm8);
+        break;
+    }
+    case 0xA5: { // lda zz
+        ADDR_ZEROPAGE();
+        cpu->acc = zp8;
+        SETZN(zp8);
+        break;
+    }
+    case 0xB5: { // lda zz, x
+        ADDR_ZEROPAGE_X();
+        cpu->acc = zp8;
+        SETZN(zp8);
+        break;
+    }
+    case 0xB2: { // lda (zz)
+        ADDR_ZEROPAGE_IND();
+        cpu->acc = ind8;
+        SETZN(ind8);
+        break;
+    }
+    case 0xA1: { // lda (zz, x)
+        ADDR_ZEROPAGE_IND_X();
+        cpu->acc = ind8;
+        SETZN(ind8);
+        break;
+    }
+    case 0xB1: { // lda (zz), y
+        ADDR_ZEROPAGE_IND_Y();
+        cpu->acc = ind8;
+        SETZN(ind8);
+        break;
+    }
+    case 0xAD: { // lda hhll
+        ADDR_ABSOLUTE();
+        cpu->acc = abs8;
+        SETZN(abs8);
+        break;
+    }
+    case 0xBD: { // lda hhll, x
+        ADDR_ABSOLUTE_X();
+        cpu->acc = abs8;
+        SETZN(abs8);
+        break;
+    }
+    case 0xB9: { // lda hhll, y
+        ADDR_ABSOLUTE_Y();
+        cpu->acc = abs8;
+        SETZN(abs8);
+        break;
+    }
+
+    case 0xA2: { // ldx #nn
+        ADDR_IMMEDIATE();
+        cpu->x = imm8;
+        SETZN(imm8);
+        break;
+    }
+    case 0xA6: { // ldx zz
+        ADDR_ZEROPAGE();
+        cpu->x = zp8;
+        SETZN(zp8);
+        break;
+    }
+    case 0xB6: { // ldx zz, y
+        ADDR_ZEROPAGE_Y();
+        cpu->x = zp8;
+        SETZN(zp8);
+        break;
+    }
+    case 0xAE: { // ldx hhll
+        ADDR_ABSOLUTE();
+        cpu->x = abs8;
+        SETZN(abs8);
+        break;
+    }
+    case 0xBE: { // ldx hhll, y
+        ADDR_ABSOLUTE_Y();
+        cpu->x = abs8;
+        SETZN(abs8);
+        break;
+    }
+
+    case 0xA0: { // ldy #nn
+        ADDR_IMMEDIATE();
+        cpu->y = imm8;
+        SETZN(imm8);
+        break;
+    }
+    case 0xA4: { // ldy zz
+        ADDR_ZEROPAGE();
+        cpu->y = zp8;
+        SETZN(zp8);
+        break;
+    }
+    case 0xB4: { // ldy zz, x
+        ADDR_ZEROPAGE_Y();
+        cpu->y = zp8;
+        SETZN(zp8);
+        break;
+    }
+    case 0xAC: { // ldy hhll
+        ADDR_ABSOLUTE();
+        cpu->y = abs8;
+        SETZN(abs8);
+        break;
+    }
+    case 0xBC: { // ldy hhll, x
+        ADDR_ABSOLUTE_Y();
+        cpu->y = abs8;
+        SETZN(abs8);
         break;
     }
 
