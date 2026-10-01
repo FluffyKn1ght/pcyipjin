@@ -3,20 +3,12 @@
 #include "pce/testmem.h"
 #include <assert.h>
 #include <signal.h>
+#include <stdcountof.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef enum : u8 {
-    TMA_MPR0 = 0x1,
-    TMA_MPR1 = 0x2,
-    TMA_MPR2 = 0x4,
-    TMA_MPR3 = 0x8,
-    TMA_MPR4 = 0x10,
-    TMA_MPR5 = 0x20,
-    TMA_MPR6 = 0x40,
-    TMA_MPR7 = 0x80,
-} TMAMPRReg;
+const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
 
 typedef enum : u8 {
     OPR_NONE,        /**< No operand */
@@ -181,6 +173,16 @@ typedef enum : u8 {
     } else {                                                                                       \
         operand_a = cpu->acc;                                                                      \
     }
+
+static inline u8 _mpr_tma_2i_to_idx(u8 tma_2i) {
+    for (int idx = 0; idx < countof(MPR_TMA_2I_VALUES); idx++) {
+        if (MPR_TMA_2I_VALUES[idx] == tma_2i) {
+            return idx;
+        }
+    }
+
+    assert(false);
+}
 
 static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     // get MPR register number
@@ -614,10 +616,66 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         break;
     }
 
+    case 0xAA: { // tax
+        cpu->x = cpu->acc;
+        SYNC();
+        SETZN(cpu->acc);
+        break;
+    }
+    case 0xA8: { // tay
+        cpu->y = cpu->acc;
+        SYNC();
+        SETZN(cpu->acc);
+        break;
+    }
+
+    case 0x8A: { // txa
+        cpu->acc = cpu->x;
+        SYNC();
+        SETZN(cpu->x);
+        break;
+    }
+    case 0x9A: { // txs
+        cpu->sp = cpu->x;
+        SYNC();
+        SETZN(cpu->x);
+        break;
+    }
+    case 0xBA: { // tsx
+        cpu->x = cpu->sp;
+        SYNC();
+        SETZN(cpu->sp);
+        break;
+    }
+    case 0x98: { // tya
+        cpu->acc = cpu->y;
+        SYNC();
+        SETZN(cpu->y);
+        break;
+    }
+
+    case 0x43: { // TMAi
+        ADDR_IMMEDIATE();
+        SYNC();
+        u8 mpr_idx = _mpr_tma_2i_to_idx(imm8);
+        SYNC();
+        cpu->acc = cpu->mpr[mpr_idx];
+        break;
+    }
+
+    case 0x53: { // TAMi
+        ADDR_IMMEDIATE();
+        SYNC();
+        u8 mpr_idx = _mpr_tma_2i_to_idx(imm8);
+        SYNC();
+        cpu->mpr[mpr_idx] = cpu->acc;
+        break;
+    }
+
     default: {
         // TODO: not crash the entire program with abort()
         printf(FILEPOS "unknown opcode $%02x\n", opcode);
-        abort();
+        assert(false);
         break;
     }
     }
