@@ -1,10 +1,11 @@
 #include "emulator.h"
 #include "pce/cpu.h"
 #include "pce/memory.h"
+#include "pce/vdc.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-static void _emu_cpusync(void* emuptr) {
+static void _emu_cpu_sync(void* emuptr) {
     Emulator* emu = (Emulator*)emuptr;
 
     u16 clock_adjust = emu->cpu->high_speed ? CPU_CLOCKDIV_HIGH : CPU_CLOCKDIV_LOW;
@@ -28,11 +29,20 @@ static void _emu_cpusync(void* emuptr) {
     }
 }
 
+static void _emu_vdc_write(void* emuptr, u8 addr, u8 value) {
+    Emulator* emu = (Emulator*)emuptr;
+    vdc_write(emu->vdc, addr, value);
+}
+
 Emulator* emu_create() {
     Emulator* emu = calloc(1, sizeof(Emulator));
 
     emu->cpu = calloc(1, sizeof(CPU));
     emu->mem = calloc(1, sizeof(Memory) + sizeof(BusDevice) * BUS_DEVICE_COUNT);
+
+    emu->callbacks.arg0 = emu;
+    emu->callbacks.cpu_sync = _emu_cpu_sync;
+    emu->callbacks.vdc_write = _emu_vdc_write;
 
     return emu;
 }
@@ -49,7 +59,7 @@ void emu_reset(Emulator* emu, bool hard) {
     printf(FILEPOS "reset (hard=%u)\n", hard);
 #endif
 
-    cpu_reset(emu->cpu, emu->mem, _emu_cpusync, (void*)emu);
+    cpu_reset(emu->cpu, emu->mem, &emu->callbacks);
 
     // todo: finish implementing
     emu->vce_clock_modulo = VCE_CLOCKDIV_5MHZ;
@@ -62,5 +72,5 @@ void emu_reset(Emulator* emu, bool hard) {
 
 void emu_step(Emulator* emu) {
     // todo: finish implementing
-    cpu_step(emu->cpu, emu->mem, _emu_cpusync, (void*)emu);
+    cpu_step(emu->cpu, emu->mem, &emu->callbacks);
 }

@@ -1,4 +1,5 @@
 #include "pce/cpu.h"
+#include "callbacks.h"
 #include "pce/memory.h"
 #include "pce/testmem.h"
 #include <assert.h>
@@ -22,12 +23,15 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
 #define DBGPRINT(msg, ...)
 #endif
 
-#define SYNC() sync_func(sync_arg);
+#define SYNC() ec->cpu_sync(ec->arg0);
 
-#define READ(dest, addr)                                                                           \
+#define READ_(dest, addr, id)                                                                      \
     SYNC();                                                                                        \
-    DBGPRINT("Read from $%04X", (addr));                                                           \
-    dest = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
+    u16 CONCAT(_read_temp_addr, id) = (addr);                                                      \
+    DBGPRINT("Read from $%04X", CONCAT(_read_temp_addr, id));                                      \
+    dest = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, CONCAT(_read_temp_addr, id)));
+
+#define READ(dest, addr) READ_(dest, addr, __COUNTER__);
 
 #define WRITE(addr, value)                                                                         \
     SYNC();                                                                                        \
@@ -128,19 +132,23 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
     addr += cpu->y;
 #define ADDR_ABSOLUTE_IND()                                                                        \
     ADDR_ABSOLUTE();                                                                               \
-    DBGPRINT("will now read absolute addr (2 bytes)");                                             \
-    READ(u8 addr_low, cpu->pc++);                                                                  \
-    READ(u8 addr_high, cpu->pc++);                                                                 \
+    DBGPRINT("will now read indir addr (2 bytes)");                                                \
+    READ(u8 ind_addr_low, addr);                                                                   \
+    READ(u8 ind_addr_high, addr + 1);                                                              \
     DBGPRINT("calculate indir address");                                                           \
     SYNC();                                                                                        \
-    u16 addr = addr_low | (addr_high << 8);
+    u16 ind_addr = ind_addr_low | (ind_addr_high << 8);
 #define ADDR_ABSOLUTE_IND_X()                                                                      \
-    ADDR_ABSOLUTE_IND();                                                                           \
-    addr += cpu->x;
-// todo: might need extra cycle
+    ADDR_ABSOLUTE();                                                                               \
+    DBGPRINT("will now read indir addr (2 bytes)");                                                \
+    READ(u8 ind_addr_low, addr + cpu->x);                                                          \
+    READ(u8 ind_addr_high, addr + cpu->x + 1);                                                     \
+    DBGPRINT("calculate indir address");                                                           \
+    SYNC();                                                                                        \
+    u16 ind_addr = ind_addr_low | (ind_addr_high << 8);
 #define ADDR_RELATIVE()                                                                            \
-    DBGPRINT("read relative");                                                                     \
-    READ(s8 offset, cpu->pc++);
+    DBGPRINT("will read relative");                                                                \
+    READ(s8 rel8, cpu->pc++);
 #define ADDR_IMM_ZEROPAGE()                                                                        \
     ADDR_IMMEDIATE();                                                                              \
     ADDR_ZEROPAGE();
@@ -166,16 +174,26 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
     }
 
 #define STACK_PUSH(what)                                                                           \
+    DBGPRINT("push %d to stack, sp=%d=>%d", what, cpu->pc, cpu->pc - 1);                           \
     WRITE(0x2100 | cpu->sp, (what));                                                               \
     SYNC();                                                                                        \
     cpu->sp--;
 
 #define STACK_PULL(dest)                                                                           \
-    READ(u8 pulled_value, 0x2100 | cpu->sp);                                                       \
+    DBGPRINT("pull from stack, sp=%d=>%d", cpu->pc, cpu->pc + 1);                                  \
     SYNC();                                                                                        \
-    dest = pulled_value;                                                                           \
+    cpu->sp++;                                                                                     \
     SYNC();                                                                                        \
-    cpu->sp++;
+    READ(dest, 0x2100 | cpu->sp);
+
+#define STACK_PUSHPC()                                                                             \
+    STACK_PUSH((cpu->pc & 0xFF00) >> 8);                                                           \
+    STACK_PUSH(cpu->pc & 0xFF);
+
+#define STACK_PULLPC()                                                                             \
+    STACK_PULL(u8 pc_low);                                                                         \
+    STACK_PULL(u8 pc_high);                                                                        \
+    cpu->pc = pc_low | (pc_high << 8);
 
 #define SWAPREGS(r1, r2)                                                                           \
     u8 reg1 = (r1);                                                                                \
@@ -184,6 +202,14 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
     (r1) = reg2;                                                                                   \
     SYNC();                                                                                        \
     (r2) = reg1;
+
+#define BRANCH(cond)                                                                               \
+    ADDR_RELATIVE();                                                                               \
+    SYNC();                                                                                        \
+    if (cond) {                                                                                    \
+        SYNC();                                                                                    \
+        cpu->pc += rel8;                                                                           \
+    }
 
 static inline u8 _mpr_tma_2i_to_idx(u8 tma_2i) {
     for (int idx = 0; idx < countof(MPR_TMA_2I_VALUES); idx++) {
@@ -204,8 +230,7 @@ static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     return (logic_addr & 0x0FFF) + (cpu->mpr[mpr_idx] * 0x2000);
 }
 
-static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
-                     void* sync_arg) {
+static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
 
@@ -261,7 +286,7 @@ static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void
     }
 }
 
-void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
+void cpu_reset(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
     cpu->status.i = true;
     cpu->status.d = false;
     cpu->mpr[7] = 0;
@@ -280,109 +305,109 @@ void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) 
     READ(u8 reset_routine_low, VEC_RESET);
     READ(u8 reset_routine_high, VEC_RESET + 1);
     cpu->pc = reset_routine_low | (reset_routine_high << 8);
-    DBGPRINT("reset, jumped to $%04X", cpu->pc, 0);
+    DBGPRINT("reset, jumped to $%04X", cpu->pc);
 }
 
-void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
+void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
     READ(u8 opcode, cpu->pc);
     cpu->pc++;
 
     switch (opcode) {
     case 0x69: { // adc #nn
         ADDR_IMMEDIATE();
-        _alu_adc(cpu, mem, imm8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, imm8, ec);
         break;
     }
     case 0x65: { // adc zz
         ADDR_ZEROPAGE();
-        _alu_adc(cpu, mem, zp8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, zp8, ec);
         break;
     }
     case 0x75: { // adc zz, x
         ADDR_ZEROPAGE_X();
-        _alu_adc(cpu, mem, zp8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, zp8, ec);
         break;
     }
     case 0x72: { // adc (zz)
         ADDR_ZEROPAGE_IND();
-        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8, ec);
         break;
     }
     case 0x61: { // adc (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8, ec);
         break;
     }
     case 0x71: { // adc (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8, ec);
         break;
     }
     case 0x6D: { // adc hell
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8, ec);
         break;
     }
     case 0x7D: { // adc hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8, ec);
         break;
     }
     case 0x79: { // adc hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8, ec);
         break;
     }
 
     case 0xE9: { // sbc #nn
         ADDR_IMMEDIATE();
-        _alu_adc(cpu, mem, imm8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
         break;
     }
     case 0xE5: { // sbc zz
         ADDR_ZEROPAGE();
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
         break;
     }
     case 0xF5: { // sbc zz, x
         ADDR_ZEROPAGE_X();
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
         break;
     }
     case 0xF2: { // sbc (zz)
         ADDR_ZEROPAGE_IND();
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
         break;
     }
     case 0xE1: { // sbc (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
         break;
     }
     case 0xF1: { // sbc (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
         break;
     }
     case 0xED: { // sbc hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
         break;
     }
     case 0xFD: { // sbc hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
         break;
     }
     case 0xF9: { // sbc hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
         break;
     }
 
@@ -631,6 +656,28 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         break;
     }
 
+    case 0x03: { // st0
+        ADDR_IMMEDIATE();
+        SYNC();
+        SYNC();
+        ec->vdc_write(ec->arg0, 0, imm8);
+        break;
+    }
+    case 0x13: { // st1
+        ADDR_IMMEDIATE();
+        SYNC();
+        SYNC();
+        ec->vdc_write(ec->arg0, 1, imm8);
+        break;
+    }
+    case 0x23: { // st2
+        ADDR_IMMEDIATE();
+        SYNC();
+        SYNC();
+        ec->vdc_write(ec->arg0, 2, imm8);
+        break;
+    }
+
     case 0xAA: { // tax
         cpu->x = cpu->acc;
         SYNC();
@@ -669,7 +716,7 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         break;
     }
 
-    case 0x43: { // TMAi
+    case 0x43: { // tmai
         ADDR_IMMEDIATE();
         SYNC();
         u8 mpr_idx = _mpr_tma_2i_to_idx(imm8);
@@ -678,7 +725,7 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         break;
     }
 
-    case 0x53: { // TAMi
+    case 0x53: { // tami
         ADDR_IMMEDIATE();
         SYNC();
         u8 mpr_idx = _mpr_tma_2i_to_idx(imm8);
@@ -721,11 +768,97 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         break;
     }
 
-    default: {
-        // TODO: not crash the entire program with abort()
-        printf(FILEPOS "unknown opcode $%02x\n", opcode);
-        assert(false);
+    case 0x90: { // bcc rr
+        BRANCH(!cpu->status.c);
         break;
+    }
+    case 0xB0: { // bcs rr
+        BRANCH(cpu->status.c);
+        break;
+    }
+
+    case 0xD0: { // bne rr
+        BRANCH(!cpu->status.z);
+        break;
+    }
+    case 0xF0: { // beq rr
+        BRANCH(cpu->status.z);
+        break;
+    }
+
+    case 0x30: { // bmi rr
+        BRANCH(!cpu->status.n);
+        break;
+    }
+    case 0x10: { // bpl rr
+        BRANCH(cpu->status.n);
+        break;
+    }
+
+    case 0x80: { // bra rr
+        BRANCH(true);
+        break;
+    }
+
+    case 0x50: { // bvc rr
+        BRANCH(!cpu->status.v);
+        break;
+    }
+    case 0x70: { // bvs rr
+        BRANCH(cpu->status.v);
+        break;
+    }
+
+    case 0x44: { // bsr rr
+        ADDR_RELATIVE();
+        SYNC();
+        STACK_PUSHPC();
+        SYNC();
+        cpu->pc += rel8;
+        break;
+    }
+
+    case 0x4C: { // jmp hhll
+        ADDR_ABSOLUTE();
+        cpu->pc = addr;
+        break;
+    }
+
+    case 0x6C: { // jmp (hhll)
+        ADDR_ABSOLUTE_IND();
+        SYNC();
+        cpu->pc = ind_addr;
+        break;
+    }
+
+    case 0x7C: { // jmp (hhll, x)
+        ADDR_ABSOLUTE_IND_X();
+        SYNC();
+        cpu->pc = ind_addr;
+        break;
+    }
+
+    default: {
+        if ((opcode <= 0x7F) && ((opcode & 0xF) == 0xF)) { // bbri zz, rr
+            u8 bit = opcode >> 4;
+
+            ADDR_IMMEDIATE();
+            LOAD_ZEROPAGE(imm8);
+
+            BRANCH(!(zp8 & (0b1 << bit)));
+        } else if ((opcode >= 0x8F) && ((opcode & 0xF) == 0xF)) { // bbsi zz, rr
+            u8 bit = opcode >> 4;
+
+            ADDR_IMMEDIATE();
+            LOAD_ZEROPAGE(imm8);
+
+            BRANCH(zp8 & (0b1 << bit));
+        } else {
+            // TODO: not crash the entire program with abort()
+            printf(FILEPOS "unknown opcode $%02x\n", opcode);
+            assert(false);
+            break;
+        }
     }
     }
 

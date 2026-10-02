@@ -6,6 +6,11 @@
 #ifndef _PCYIPJIN_EMULATOR_H
 #define _PCYIPJIN_EMULATOR_H
 
+#include "callbacks.h"
+#include "pce/cpu.h"
+#include "pce/memory.h"
+#include "pce/vdc.h"
+
 #define MASTER_CLOCK 21'147'727
 #define CPU_CLOCKDIV_HIGH 3
 #define CPU_CLOCKDIV_LOW 12
@@ -14,15 +19,13 @@
 #define VCE_CLOCKDIV_7MHZ 3
 #define VCE_CLOCKDIV_5MHZ 4
 
-#include "pce/cpu.h"
-#include "pce/memory.h"
-
 /**
  * @brief Represents a pcyipjin emulator instance
  */
 typedef struct {
     CPU* cpu;    /**< The CPU this emulator uses */
     Memory* mem; /**< The Memory bus this emulator uses */
+    VDC* vdc;    /**< The VDC this emulator uses */
 
     u64 cycles; /**< Master clock cycle counter */
 
@@ -31,6 +34,8 @@ typedef struct {
 
     // TODO: Move to dedicated file
     u16 timer_clock; /**< Timer clock counter */
+
+    EmuCallbacks callbacks; /**< Callback struct to pass to module functions */
 } Emulator;
 
 /**

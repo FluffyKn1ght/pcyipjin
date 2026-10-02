@@ -3,6 +3,9 @@
 #define STR_(x) #x
 #define STR(x) STR_(x)
 
+#define CONCAT_(a, b) a##b
+#define CONCAT(a, b) CONCAT_(a, b)
+
 #define FILEPOS "[" __FILE__ ":" STR(__LINE__) "] "
 
 #define TRAP() __asm__("int3");
