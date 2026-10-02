@@ -48,6 +48,8 @@ typedef struct {
     u8 mpr[8]; /**< Mapping registers (MPR0-MPR7) */
 
     bool high_speed; /**< Whether the CPU is running at 7MHz high speed */
+
+    bool _alu_discard; /**< Whether the next ALU result should be discarded (i.e. cmp/cpx/cpy) */
 } CPU;
 
 /**

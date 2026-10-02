@@ -173,6 +173,15 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
         operand_a = cpu->acc;                                                                      \
     }
 
+#define ALU_SET_RESULT(result)                                                                     \
+    if (!cpu->_alu_discard) {                                                                      \
+        if (cpu->status.t) {                                                                       \
+            WRITEZPX(result);                                                                      \
+        } else {                                                                                   \
+            cpu->acc = (result);                                                                   \
+        }                                                                                          \
+    }
+
 #define STACK_PUSH(what)                                                                           \
     DBGPRINT("push $%0X2 to stack, sp=$%02X=>$%02X", what, cpu->sp, cpu->sp - 1);                  \
     WRITE(0x2100 | cpu->sp, (what));                                                               \
@@ -278,11 +287,80 @@ static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
 
     SETZN(final_result);
 
-    if (cpu->status.t) {
-        WRITEZPX(final_result);
-    } else {
-        cpu->acc = final_result;
-    }
+    ALU_SET_RESULT(final_result);
+}
+
+static void _alu_and(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
+    u8 operand_a;
+    ALU_GET_OPRERAND_A();
+
+    u8 result = operand_a & operand_b;
+
+    SETZN(result);
+
+    ALU_SET_RESULT(result);
+}
+
+static void _alu_ora(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
+    u8 operand_a;
+    ALU_GET_OPRERAND_A();
+
+    u8 result = operand_a | operand_b;
+
+    SETZN(result);
+
+    ALU_SET_RESULT(result);
+}
+
+static void _alu_eor(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
+    u8 operand_a;
+    ALU_GET_OPRERAND_A();
+
+    u8 result = operand_a ^ operand_b;
+
+    SETZN(result);
+
+    ALU_SET_RESULT(result);
+}
+
+static u8 _alu_asl(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+    cpu->status.c = operand & 0x80;
+    u8 result = operand << 1;
+
+    SETZN(result);
+
+    return result;
+}
+
+static u8 _alu_lsr(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+    cpu->status.c = operand & 0x1;
+    u8 result = operand >> 1;
+
+    SETZN(result);
+
+    return result;
+}
+
+static u8 _alu_rol(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+    bool new_carry = operand & 0x80;
+    u8 result = operand << 1;
+    result |= cpu->status.c;
+    cpu->status.c = new_carry;
+
+    SETZN(result);
+
+    return result;
+}
+
+static u8 _alu_ror(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+    bool new_carry = operand & 0x1;
+    u8 result = operand >> 1;
+    result |= cpu->status.c << 7;
+    cpu->status.c = new_carry;
+
+    SETZN(result);
+
+    return result;
 }
 
 void cpu_reset(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
@@ -358,6 +436,153 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
         _alu_adc(cpu, mem, abs8, ec);
+        break;
+    }
+
+    case 0x29: { // and #nn
+        ADDR_IMMEDIATE();
+        _alu_and(cpu, mem, imm8, ec);
+        break;
+    }
+    case 0x25: { // and zz
+        ADDR_ZEROPAGE();
+        _alu_and(cpu, mem, zp8, ec);
+        break;
+    }
+    case 0x35: { // and zz, x
+        ADDR_ZEROPAGE_X();
+        _alu_and(cpu, mem, zp8, ec);
+        break;
+    }
+    case 0x32: { // and (zz)
+        ADDR_ZEROPAGE_IND();
+        _alu_and(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x21: { // and (zz, x)
+        ADDR_ZEROPAGE_IND_X();
+        _alu_and(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x31: { // and (zz), y
+        ADDR_ZEROPAGE_IND_Y();
+        _alu_and(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x2D: { // and hell
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        _alu_and(cpu, mem, abs8, ec);
+        break;
+    }
+    case 0x3D: { // and hhll, x
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        _alu_and(cpu, mem, abs8, ec);
+        break;
+    }
+    case 0x39: { // and hhll, y
+        ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
+        _alu_and(cpu, mem, abs8, ec);
+        break;
+    }
+
+    case 0x49: { // eor #nn
+        ADDR_IMMEDIATE();
+        _alu_eor(cpu, mem, imm8, ec);
+        break;
+    }
+    case 0x45: { // eor zz
+        ADDR_ZEROPAGE();
+        _alu_eor(cpu, mem, zp8, ec);
+        break;
+    }
+    case 0x55: { // eor zz, x
+        ADDR_ZEROPAGE_X();
+        _alu_eor(cpu, mem, zp8, ec);
+        break;
+    }
+    case 0x52: { // eor (zz)
+        ADDR_ZEROPAGE_IND();
+        _alu_eor(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x41: { // eor (zz, x)
+        ADDR_ZEROPAGE_IND_X();
+        _alu_eor(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x51: { // eor (zz), y
+        ADDR_ZEROPAGE_IND_Y();
+        _alu_eor(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x4D: { // eor hell
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        _alu_eor(cpu, mem, abs8, ec);
+        break;
+    }
+    case 0x5D: { // eor hhll, x
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        _alu_eor(cpu, mem, abs8, ec);
+        break;
+    }
+    case 0x59: { // eor hhll, y
+        ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
+        _alu_eor(cpu, mem, abs8, ec);
+        break;
+    }
+
+    case 0x09: { // ora #nn
+        ADDR_IMMEDIATE();
+        _alu_ora(cpu, mem, imm8, ec);
+        break;
+    }
+    case 0x05: { // ora zz
+        ADDR_ZEROPAGE();
+        _alu_ora(cpu, mem, zp8, ec);
+        break;
+    }
+    case 0x15: { // ora zz, x
+        ADDR_ZEROPAGE_X();
+        _alu_ora(cpu, mem, zp8, ec);
+        break;
+    }
+    case 0x12: { // ora (zz)
+        ADDR_ZEROPAGE_IND();
+        _alu_ora(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x01: { // ora (zz, x)
+        ADDR_ZEROPAGE_IND_X();
+        _alu_ora(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x11: { // ora (zz), y
+        ADDR_ZEROPAGE_IND_Y();
+        _alu_ora(cpu, mem, ind8, ec);
+        break;
+    }
+    case 0x0D: { // ora hell
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        _alu_ora(cpu, mem, abs8, ec);
+        break;
+    }
+    case 0x1D: { // ora hhll, x
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        _alu_ora(cpu, mem, abs8, ec);
+        break;
+    }
+    case 0x19: { // ora hhll, y
+        ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
+        _alu_ora(cpu, mem, abs8, ec);
         break;
     }
 
