@@ -863,6 +863,48 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         break;
     }
 
+    case 0x18: { // clc
+        SYNC();
+        cpu->status.c = false;
+        break;
+    }
+    case 0xD8: { // cld
+        SYNC();
+        cpu->status.d = false;
+        break;
+    }
+    case 0x58: { // cli
+        SYNC();
+        cpu->status.i = false;
+        break;
+    }
+    case 0xB8: { // clv
+        SYNC();
+        cpu->status.v = false;
+        break;
+    }
+
+    case 0x38: { // sec
+        SYNC();
+        cpu->status.c = true;
+        break;
+    }
+    case 0xF8: { // sed
+        SYNC();
+        cpu->status.d = true;
+        break;
+    }
+    case 0x78: { // sei
+        SYNC();
+        cpu->status.i = true;
+        break;
+    }
+    case 0xF4: { // set
+        SYNC();
+        cpu->status.t = true;
+        break;
+    }
+
     default: {
         if ((opcode <= 0x7F) && ((opcode & 0xF) == 0xF)) { // bbri zz, rr
             u8 bit = opcode >> 4;
