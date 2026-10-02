@@ -469,7 +469,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         _alu_and(cpu, mem, ind8, ec);
         break;
     }
-    case 0x2D: { // and hell
+    case 0x2D: { // and hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
         _alu_and(cpu, mem, abs8, ec);
@@ -518,7 +518,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         _alu_eor(cpu, mem, ind8, ec);
         break;
     }
-    case 0x4D: { // eor hell
+    case 0x4D: { // eor hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
         _alu_eor(cpu, mem, abs8, ec);
@@ -567,7 +567,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         _alu_ora(cpu, mem, ind8, ec);
         break;
     }
-    case 0x0D: { // ora hell
+    case 0x0D: { // ora hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
         _alu_ora(cpu, mem, abs8, ec);
@@ -583,6 +583,242 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
         _alu_ora(cpu, mem, abs8, ec);
+        break;
+    }
+
+    case 0xC9: { // cmp #nn
+        ADDR_IMMEDIATE();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xC5: { // cmp zz
+        ADDR_ZEROPAGE();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xD5: { // cmp zz, x
+        ADDR_ZEROPAGE_X();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xD2: { // cmp (zz)
+        ADDR_ZEROPAGE_IND();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xC1: { // cmp (zz, x)
+        ADDR_ZEROPAGE_IND_X();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xD1: { // cmp (zz), y
+        ADDR_ZEROPAGE_IND_Y();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xCD: { // cmp hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xDD: { // cmp hhll, x
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+    case 0xD9: { // cmp hhll, y
+        ADDR_ABSOLUTE_Y();
+        READ(u8 abs8, addr);
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        cpu->_alu_discard = true;
+
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+
+        break;
+    }
+
+    case 0xE0: { // cpx #nn
+        ADDR_IMMEDIATE();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        u8 old_acc = cpu->acc;
+        cpu->_alu_discard = true;
+        cpu->acc = cpu->x;
+
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+        cpu->acc = old_acc;
+
+        break;
+    }
+    case 0xE4: { // cpx zz
+        ADDR_ZEROPAGE();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        u8 old_acc = cpu->acc;
+        cpu->_alu_discard = true;
+        cpu->acc = cpu->x;
+
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+        cpu->acc = old_acc;
+
+        break;
+    }
+    case 0xEC: { // cpx hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        u8 old_acc = cpu->acc;
+        cpu->_alu_discard = true;
+        cpu->acc = cpu->x;
+
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+        cpu->acc = old_acc;
+
+        break;
+    }
+
+    case 0xC0: { // cpy #nn
+        ADDR_IMMEDIATE();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        u8 old_acc = cpu->acc;
+        cpu->_alu_discard = true;
+        cpu->acc = cpu->y;
+
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+        cpu->acc = old_acc;
+
+        break;
+    }
+    case 0xC4: { // cpy zz
+        ADDR_ZEROPAGE();
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        u8 old_acc = cpu->acc;
+        cpu->_alu_discard = true;
+        cpu->acc = cpu->y;
+
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+        cpu->acc = old_acc;
+
+        break;
+    }
+    case 0xCC: { // cpy hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+
+        u8 old_d_flag = cpu->status.d;
+        cpu->status.d = false;
+        u8 old_acc = cpu->acc;
+        cpu->_alu_discard = true;
+        cpu->acc = cpu->y;
+
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+
+        cpu->_alu_discard = false;
+        cpu->status.d = old_d_flag;
+        cpu->acc = old_acc;
+
         break;
     }
 
