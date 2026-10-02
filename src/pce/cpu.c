@@ -177,6 +177,14 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
     SYNC();                                                                                        \
     cpu->sp++;
 
+#define SWAPREGS(r1, r2)                                                                           \
+    u8 reg1 = (r1);                                                                                \
+    u8 reg2 = (r2);                                                                                \
+    SYNC();                                                                                        \
+    (r1) = reg2;                                                                                   \
+    SYNC();                                                                                        \
+    (r2) = reg1;
+
 static inline u8 _mpr_tma_2i_to_idx(u8 tma_2i) {
     for (int idx = 0; idx < countof(MPR_TMA_2I_VALUES); idx++) {
         if (MPR_TMA_2I_VALUES[idx] == tma_2i) {
@@ -611,12 +619,15 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     }
 
     case 0x02: { // sxy
-        u8 rx = cpu->x;
-        u8 ry = cpu->y;
-        SYNC();
-        cpu->x = ry;
-        SYNC();
-        cpu->y = rx;
+        SWAPREGS(cpu->x, cpu->y);
+        break;
+    }
+    case 0x22: { // sax
+        SWAPREGS(cpu->acc, cpu->x);
+        break;
+    }
+    case 0x42: { // say
+        SWAPREGS(cpu->acc, cpu->y);
         break;
     }
 
