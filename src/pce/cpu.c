@@ -174,16 +174,15 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
     }
 
 #define STACK_PUSH(what)                                                                           \
-    DBGPRINT("push %d to stack, sp=%d=>%d", what, cpu->pc, cpu->pc - 1);                           \
+    DBGPRINT("push $%0X2 to stack, sp=$%02X=>$%02X", what, cpu->sp, cpu->sp - 1);                  \
     WRITE(0x2100 | cpu->sp, (what));                                                               \
     SYNC();                                                                                        \
     cpu->sp--;
 
 #define STACK_PULL(dest)                                                                           \
-    DBGPRINT("pull from stack, sp=%d=>%d", cpu->pc, cpu->pc + 1);                                  \
+    DBGPRINT("pull from stack, sp=$%02X=>$%02X", cpu->sp, cpu->sp + 1);                            \
     SYNC();                                                                                        \
     cpu->sp++;                                                                                     \
-    SYNC();                                                                                        \
     READ(dest, 0x2100 | cpu->sp);
 
 #define STACK_PUSHPC()                                                                             \
@@ -753,18 +752,22 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
 
     case 0x68: { // pla
         STACK_PULL(cpu->acc);
+        SYNC();
         break;
     }
     case 0x28: { // plp
         STACK_PULL(cpu->p);
+        SYNC();
         break;
     }
     case 0xFA: { // plx
         STACK_PULL(cpu->x);
+        SYNC();
         break;
     }
     case 0x7A: { // ply
         STACK_PULL(cpu->y);
+        SYNC();
         break;
     }
 
@@ -835,6 +838,28 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_IND_X();
         SYNC();
         cpu->pc = ind_addr;
+        break;
+    }
+
+    case 0x20: { // jsr hhll
+        READ(u8 pc_low, cpu->pc);
+        STACK_PUSHPC();
+        READ(u8 pc_high, cpu->pc);
+        cpu->pc = pc_low | (pc_high << 8);
+        break;
+    }
+
+    case 0x40: { // rti
+        STACK_PULL(cpu->p);
+        STACK_PULLPC();
+        break;
+    }
+
+    case 0x60: { // rts
+        STACK_PULLPC();
+        SYNC();
+        cpu->pc++;
+        SYNC();
         break;
     }
 
