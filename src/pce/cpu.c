@@ -822,6 +822,22 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         break;
     }
 
+    case 0x62: { // cla
+        SYNC();
+        cpu->acc = 0;
+        break;
+    }
+    case 0x82: { // clx
+        SYNC();
+        cpu->x = 0;
+        break;
+    }
+    case 0xC2: { // cly
+        SYNC();
+        cpu->y = 0;
+        break;
+    }
+
     case 0xE9: { // sbc #nn
         ADDR_IMMEDIATE();
         _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
