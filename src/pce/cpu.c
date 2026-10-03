@@ -982,6 +982,114 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         break;
     }
 
+    case 0xE6: { // inc zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        zp8++;
+        SETZN(zp8);
+        WRITE(zp_addr, zp8);
+        break;
+    }
+    case 0xF6: { // inc zz, x
+        ADDR_ZEROPAGE_X();
+        SYNC();
+        zp8++;
+        SETZN(zp8);
+        WRITE(zp_addr + cpu->x, zp8);
+        break;
+    }
+    case 0xEE: { // inc hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        abs8++;
+        SETZN(abs8);
+        WRITE(addr, abs8);
+        break;
+    }
+    case 0xFE: { // inc hhll, x
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        SYNC();
+        abs8++;
+        SETZN(abs8);
+        WRITE(addr, abs8);
+        break;
+    }
+    case 0x1A: { // inc a
+        SYNC();
+        cpu->acc++;
+        SETZN(cpu->acc);
+        break;
+    }
+
+    case 0xE8: { // inx
+        SYNC();
+        cpu->x++;
+        SETZN(cpu->x);
+        break;
+    }
+    case 0xC8: { // iny
+        SYNC();
+        cpu->y++;
+        SETZN(cpu->y);
+        break;
+    }
+
+    case 0xC6: { // dec zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        zp8--;
+        SETZN(zp8);
+        WRITE(zp_addr, zp8);
+        break;
+    }
+    case 0xD6: { // dec zz, x
+        ADDR_ZEROPAGE_X();
+        SYNC();
+        zp8--;
+        SETZN(zp8);
+        WRITE(zp_addr + cpu->x, zp8);
+        break;
+    }
+    case 0xCE: { // dec hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        abs8--;
+        SETZN(abs8);
+        WRITE(addr, abs8);
+        break;
+    }
+    case 0xDE: { // dec hhll, x
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        SYNC();
+        abs8--;
+        SETZN(abs8);
+        WRITE(addr, abs8);
+        break;
+    }
+    case 0x3A: { // dec a
+        SYNC();
+        cpu->acc--;
+        SETZN(cpu->acc);
+        break;
+    }
+
+    case 0xCA: { // dex
+        SYNC();
+        cpu->x--;
+        SETZN(cpu->x);
+        break;
+    }
+    case 0x88: { // dey
+        SYNC();
+        cpu->y--;
+        SETZN(cpu->y);
+        break;
+    }
+
     case 0xE9: { // sbc #nn
         ADDR_IMMEDIATE();
         _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
