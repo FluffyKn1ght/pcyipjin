@@ -1,6 +1,5 @@
 #include "pce/cpu.h"
-#include "callbacks.h"
-#include "pce/memory.h"
+#include "memory.h"
 #include "pce/testmem.h"
 #include <assert.h>
 #include <signal.h>
@@ -30,7 +29,7 @@ typedef enum : u8 {
 #define DBGPRINT(msg, ...)
 #endif
 
-#define SYNC() ec->cpu_sync(ec->arg0);
+#define SYNC() sync_func(sync_arg);
 
 #define READ_(dest, addr, id)                                                                      \
     SYNC();                                                                                        \
@@ -247,7 +246,8 @@ static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     return (logic_addr & 0x0FFF) + (cpu->mpr[mpr_idx] * 0x2000);
 }
 
-static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
+static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+                     void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
 
@@ -299,7 +299,8 @@ static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
     ALU_SET_RESULT(final_result);
 }
 
-static void _alu_and(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
+static void _alu_and(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+                     void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
 
@@ -310,7 +311,8 @@ static void _alu_and(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
     ALU_SET_RESULT(result);
 }
 
-static void _alu_ora(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
+static void _alu_ora(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+                     void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
 
@@ -321,7 +323,8 @@ static void _alu_ora(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
     ALU_SET_RESULT(result);
 }
 
-static void _alu_eor(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
+static void _alu_eor(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+                     void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
 
@@ -332,7 +335,7 @@ static void _alu_eor(CPU* cpu, Memory* mem, u8 operand_b, EmuCallbacks* ec) {
     ALU_SET_RESULT(result);
 }
 
-static u8 _alu_asl(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+static u8 _alu_asl(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
     cpu->status.c = operand & 0x80;
     u8 result = operand << 1;
 
@@ -341,7 +344,7 @@ static u8 _alu_asl(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
     return result;
 }
 
-static u8 _alu_lsr(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+static u8 _alu_lsr(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
     cpu->status.c = operand & 0x1;
     u8 result = operand >> 1;
 
@@ -350,7 +353,7 @@ static u8 _alu_lsr(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
     return result;
 }
 
-static u8 _alu_rol(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+static u8 _alu_rol(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
     bool new_carry = operand & 0x80;
     u8 result = operand << 1;
     result |= cpu->status.c;
@@ -361,7 +364,7 @@ static u8 _alu_rol(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
     return result;
 }
 
-static u8 _alu_ror(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
+static u8 _alu_ror(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
     bool new_carry = operand & 0x1;
     u8 result = operand >> 1;
     result |= cpu->status.c << 7;
@@ -372,7 +375,8 @@ static u8 _alu_ror(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
     return result;
 }
 
-static void _alu_bit(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, EmuCallbacks* ec) {
+static void _alu_bit(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, void (*sync_func)(void*),
+                     void* sync_arg) {
     u8 result = operand_a & operand_b;
     cpu->status.z = result == 0;
     cpu->status.n = operand_a & 0x80;
@@ -380,7 +384,8 @@ static void _alu_bit(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, EmuCallb
     return;
 }
 
-static void _alu_tsb(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, EmuCallbacks* ec) {
+static void _alu_tsb(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, void (*sync_func)(void*),
+                     void* sync_arg) {
     u8 result = operand_a | operand_b;
     cpu->status.z = result == 0;
     cpu->status.n = operand_a & 0x80;
@@ -424,7 +429,8 @@ inline static u16 _blt_modify_addr(CPU* cpu, u16 addr, BltAddressType addr_type)
 }
 
 static void _block_transfer(CPU* cpu, Memory* mem, BltAddressType src_addr_type,
-                            BltAddressType dest_addr_type, EmuCallbacks* ec) {
+                            BltAddressType dest_addr_type, void (*sync_func)(void*),
+                            void* sync_arg) {
     // waste 4 cycles
     SYNC();
     SYNC();
@@ -463,7 +469,7 @@ static void _block_transfer(CPU* cpu, Memory* mem, BltAddressType src_addr_type,
     STACK_PULL(cpu->y);
 }
 
-void cpu_reset(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
+void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     cpu->status.i = true;
     cpu->status.d = false;
     cpu->mpr[7] = 0;
@@ -485,162 +491,162 @@ void cpu_reset(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
     DBGPRINT("reset, jumped to $%04X", cpu->pc);
 }
 
-void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
+void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
     READ(u8 opcode, cpu->pc);
     cpu->pc++;
 
     switch (opcode) {
     case 0x69: { // adc #nn
         ADDR_IMMEDIATE();
-        _alu_adc(cpu, mem, imm8, ec);
+        _alu_adc(cpu, mem, imm8, sync_func, sync_arg);
         break;
     }
     case 0x65: { // adc zz
         ADDR_ZEROPAGE();
-        _alu_adc(cpu, mem, zp8, ec);
+        _alu_adc(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x75: { // adc zz, x
         ADDR_ZEROPAGE_X();
-        _alu_adc(cpu, mem, zp8, ec);
+        _alu_adc(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x72: { // adc (zz)
         ADDR_ZEROPAGE_IND();
-        _alu_adc(cpu, mem, ind8, ec);
+        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x61: { // adc (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        _alu_adc(cpu, mem, ind8, ec);
+        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x71: { // adc (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        _alu_adc(cpu, mem, ind8, ec);
+        _alu_adc(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x6D: { // adc hell
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8, ec);
+        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x7D: { // adc hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8, ec);
+        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x79: { // adc hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8, ec);
+        _alu_adc(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
 
     case 0x29: { // and #nn
         ADDR_IMMEDIATE();
-        _alu_and(cpu, mem, imm8, ec);
+        _alu_and(cpu, mem, imm8, sync_func, sync_arg);
         break;
     }
     case 0x25: { // and zz
         ADDR_ZEROPAGE();
-        _alu_and(cpu, mem, zp8, ec);
+        _alu_and(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x35: { // and zz, x
         ADDR_ZEROPAGE_X();
-        _alu_and(cpu, mem, zp8, ec);
+        _alu_and(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x32: { // and (zz)
         ADDR_ZEROPAGE_IND();
-        _alu_and(cpu, mem, ind8, ec);
+        _alu_and(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x21: { // and (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        _alu_and(cpu, mem, ind8, ec);
+        _alu_and(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x31: { // and (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        _alu_and(cpu, mem, ind8, ec);
+        _alu_and(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x2D: { // and hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_and(cpu, mem, abs8, ec);
+        _alu_and(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x3D: { // and hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
-        _alu_and(cpu, mem, abs8, ec);
+        _alu_and(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x39: { // and hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
-        _alu_and(cpu, mem, abs8, ec);
+        _alu_and(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
 
     case 0x89: { // bit #nn
         ADDR_IMMEDIATE();
         SYNC();
-        _alu_bit(cpu, mem, imm8, cpu->acc, ec);
+        _alu_bit(cpu, mem, imm8, cpu->acc, sync_func, sync_arg);
         break;
     }
     case 0x24: { // bit zz
         ADDR_ZEROPAGE();
-        _alu_bit(cpu, mem, zp8, cpu->acc, ec);
+        _alu_bit(cpu, mem, zp8, cpu->acc, sync_func, sync_arg);
         break;
     }
     case 0x34: { // bit zz, x
         ADDR_ZEROPAGE();
-        _alu_bit(cpu, mem, zp8, cpu->acc, ec);
+        _alu_bit(cpu, mem, zp8, cpu->acc, sync_func, sync_arg);
         break;
     }
     case 0x2C: { // bit hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_bit(cpu, mem, abs8, cpu->acc, ec);
+        _alu_bit(cpu, mem, abs8, cpu->acc, sync_func, sync_arg);
         break;
     }
     case 0x3C: { // bit hhll, x
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_bit(cpu, mem, abs8, cpu->acc, ec);
+        _alu_bit(cpu, mem, abs8, cpu->acc, sync_func, sync_arg);
         break;
     }
 
     case 0x83: { // tst #nn, zz
         ADDR_IMM_ZEROPAGE();
         SYNC();
-        _alu_bit(cpu, mem, imm8, zp8, ec);
+        _alu_bit(cpu, mem, imm8, zp8, sync_func, sync_arg);
         break;
     }
     case 0xA3: { // tst #nn, zz
         ADDR_IMM_ZEROPAGE();
         SYNC();
-        _alu_bit(cpu, mem, imm8, zp8, ec);
+        _alu_bit(cpu, mem, imm8, zp8, sync_func, sync_arg);
         break;
     }
     case 0x93: { // tst #nn, hhll
         ADDR_IMM_ABSOLUTE();
         READ(u8 abs8, addr);
         SYNC();
-        _alu_bit(cpu, mem, imm8, abs8, ec);
+        _alu_bit(cpu, mem, imm8, abs8, sync_func, sync_arg);
         break;
     }
     case 0xB3: { // tst #nn, hhll, x
         ADDR_IMM_ABSOLUTE_X();
         READ(u8 abs8, addr);
         SYNC();
-        _alu_bit(cpu, mem, imm8, abs8, ec);
+        _alu_bit(cpu, mem, imm8, abs8, sync_func, sync_arg);
         break;
     }
 
@@ -648,7 +654,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ZEROPAGE();
         SYNC();
         SYNC();
-        _alu_bit(cpu, mem, zp8, ~cpu->acc, ec);
+        _alu_bit(cpu, mem, zp8, ~cpu->acc, sync_func, sync_arg);
         break;
     }
     case 0x1C: { // trb hhll
@@ -656,7 +662,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         READ(u8 abs8, addr);
         SYNC();
         SYNC();
-        _alu_bit(cpu, mem, abs8, ~cpu->acc, ec);
+        _alu_bit(cpu, mem, abs8, ~cpu->acc, sync_func, sync_arg);
         break;
     }
 
@@ -664,112 +670,112 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ZEROPAGE();
         SYNC();
         SYNC();
-        _alu_tsb(cpu, mem, zp8, ~cpu->acc, ec);
+        _alu_tsb(cpu, mem, zp8, ~cpu->acc, sync_func, sync_arg);
         break;
     }
     case 0x0C: { // tsb hhll
         ADDR_ZEROPAGE();
         SYNC();
         SYNC();
-        _alu_tsb(cpu, mem, zp8, ~cpu->acc, ec);
+        _alu_tsb(cpu, mem, zp8, ~cpu->acc, sync_func, sync_arg);
         break;
     }
 
     case 0x49: { // eor #nn
         ADDR_IMMEDIATE();
-        _alu_eor(cpu, mem, imm8, ec);
+        _alu_eor(cpu, mem, imm8, sync_func, sync_arg);
         break;
     }
     case 0x45: { // eor zz
         ADDR_ZEROPAGE();
-        _alu_eor(cpu, mem, zp8, ec);
+        _alu_eor(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x55: { // eor zz, x
         ADDR_ZEROPAGE_X();
-        _alu_eor(cpu, mem, zp8, ec);
+        _alu_eor(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x52: { // eor (zz)
         ADDR_ZEROPAGE_IND();
-        _alu_eor(cpu, mem, ind8, ec);
+        _alu_eor(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x41: { // eor (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        _alu_eor(cpu, mem, ind8, ec);
+        _alu_eor(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x51: { // eor (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        _alu_eor(cpu, mem, ind8, ec);
+        _alu_eor(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x4D: { // eor hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_eor(cpu, mem, abs8, ec);
+        _alu_eor(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x5D: { // eor hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
-        _alu_eor(cpu, mem, abs8, ec);
+        _alu_eor(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x59: { // eor hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
-        _alu_eor(cpu, mem, abs8, ec);
+        _alu_eor(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
 
     case 0x09: { // ora #nn
         ADDR_IMMEDIATE();
-        _alu_ora(cpu, mem, imm8, ec);
+        _alu_ora(cpu, mem, imm8, sync_func, sync_arg);
         break;
     }
     case 0x05: { // ora zz
         ADDR_ZEROPAGE();
-        _alu_ora(cpu, mem, zp8, ec);
+        _alu_ora(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x15: { // ora zz, x
         ADDR_ZEROPAGE_X();
-        _alu_ora(cpu, mem, zp8, ec);
+        _alu_ora(cpu, mem, zp8, sync_func, sync_arg);
         break;
     }
     case 0x12: { // ora (zz)
         ADDR_ZEROPAGE_IND();
-        _alu_ora(cpu, mem, ind8, ec);
+        _alu_ora(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x01: { // ora (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        _alu_ora(cpu, mem, ind8, ec);
+        _alu_ora(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x11: { // ora (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        _alu_ora(cpu, mem, ind8, ec);
+        _alu_ora(cpu, mem, ind8, sync_func, sync_arg);
         break;
     }
     case 0x0D: { // ora hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_ora(cpu, mem, abs8, ec);
+        _alu_ora(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x1D: { // ora hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
-        _alu_ora(cpu, mem, abs8, ec);
+        _alu_ora(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
     case 0x19: { // ora hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
-        _alu_ora(cpu, mem, abs8, ec);
+        _alu_ora(cpu, mem, abs8, sync_func, sync_arg);
         break;
     }
 
@@ -780,7 +786,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -794,7 +800,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -808,7 +814,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -822,7 +828,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -836,7 +842,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -850,7 +856,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -865,7 +871,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -880,7 +886,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -895,7 +901,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->status.d = false;
         cpu->_alu_discard = true;
 
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -912,7 +918,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->_alu_discard = true;
         cpu->acc = cpu->x;
 
-        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -929,7 +935,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->_alu_discard = true;
         cpu->acc = cpu->x;
 
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -947,7 +953,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->_alu_discard = true;
         cpu->acc = cpu->x;
 
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -965,7 +971,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->_alu_discard = true;
         cpu->acc = cpu->y;
 
-        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -982,7 +988,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->_alu_discard = true;
         cpu->acc = cpu->y;
 
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -1000,7 +1006,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         cpu->_alu_discard = true;
         cpu->acc = cpu->y;
 
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
 
         cpu->_alu_discard = false;
         cpu->status.d = old_d_flag;
@@ -1028,14 +1034,14 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
     case 0x06: { // asl zz
         ADDR_ZEROPAGE();
         SYNC();
-        u8 result = _alu_asl(cpu, mem, zp8, ec);
+        u8 result = _alu_asl(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr, result);
         break;
     }
     case 0x16: { // asl zz, x
         ADDR_ZEROPAGE_X();
         SYNC();
-        u8 result = _alu_asl(cpu, mem, zp8, ec);
+        u8 result = _alu_asl(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr + cpu->x, result);
         break;
     }
@@ -1043,7 +1049,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_asl(cpu, mem, abs8, ec);
+        u8 result = _alu_asl(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
@@ -1051,27 +1057,27 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_asl(cpu, mem, abs8, ec);
+        u8 result = _alu_asl(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
     case 0x0A: { // asl a
         SYNC();
-        cpu->acc = _alu_asl(cpu, mem, cpu->acc, ec);
+        cpu->acc = _alu_asl(cpu, mem, cpu->acc, sync_func, sync_arg);
         break;
     }
 
     case 0x46: { // lsr zz
         ADDR_ZEROPAGE();
         SYNC();
-        u8 result = _alu_lsr(cpu, mem, zp8, ec);
+        u8 result = _alu_lsr(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr, result);
         break;
     }
     case 0x56: { // lsr zz, x
         ADDR_ZEROPAGE_X();
         SYNC();
-        u8 result = _alu_lsr(cpu, mem, zp8, ec);
+        u8 result = _alu_lsr(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr + cpu->x, result);
         break;
     }
@@ -1079,7 +1085,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_lsr(cpu, mem, abs8, ec);
+        u8 result = _alu_lsr(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
@@ -1087,27 +1093,27 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_lsr(cpu, mem, abs8, ec);
+        u8 result = _alu_lsr(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
     case 0x4A: { // lsr a
         SYNC();
-        cpu->acc = _alu_lsr(cpu, mem, cpu->acc, ec);
+        cpu->acc = _alu_lsr(cpu, mem, cpu->acc, sync_func, sync_arg);
         break;
     }
 
     case 0x26: { // rol zz
         ADDR_ZEROPAGE();
         SYNC();
-        u8 result = _alu_rol(cpu, mem, zp8, ec);
+        u8 result = _alu_rol(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr, result);
         break;
     }
     case 0x36: { // rol zz, x
         ADDR_ZEROPAGE_X();
         SYNC();
-        u8 result = _alu_rol(cpu, mem, zp8, ec);
+        u8 result = _alu_rol(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr + cpu->x, result);
         break;
     }
@@ -1115,7 +1121,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_rol(cpu, mem, abs8, ec);
+        u8 result = _alu_rol(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
@@ -1123,27 +1129,27 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_rol(cpu, mem, abs8, ec);
+        u8 result = _alu_rol(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
     case 0x2A: { // rol a
         SYNC();
-        cpu->acc = _alu_rol(cpu, mem, cpu->acc, ec);
+        cpu->acc = _alu_rol(cpu, mem, cpu->acc, sync_func, sync_arg);
         break;
     }
 
     case 0x66: { // ror zz
         ADDR_ZEROPAGE();
         SYNC();
-        u8 result = _alu_ror(cpu, mem, zp8, ec);
+        u8 result = _alu_ror(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr, result);
         break;
     }
     case 0x76: { // ror zz, x
         ADDR_ZEROPAGE_X();
         SYNC();
-        u8 result = _alu_ror(cpu, mem, zp8, ec);
+        u8 result = _alu_ror(cpu, mem, zp8, sync_func, sync_arg);
         WRITE(zp_addr + cpu->x, result);
         break;
     }
@@ -1151,7 +1157,7 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_ror(cpu, mem, abs8, ec);
+        u8 result = _alu_ror(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
@@ -1159,13 +1165,13 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
         SYNC();
-        u8 result = _alu_ror(cpu, mem, abs8, ec);
+        u8 result = _alu_ror(cpu, mem, abs8, sync_func, sync_arg);
         WRITE(addr, result);
         break;
     }
     case 0x6A: { // ror a
         SYNC();
-        cpu->acc = _alu_ror(cpu, mem, cpu->acc, ec);
+        cpu->acc = _alu_ror(cpu, mem, cpu->acc, sync_func, sync_arg);
         break;
     }
 
@@ -1279,50 +1285,50 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
 
     case 0xE9: { // sbc #nn
         ADDR_IMMEDIATE();
-        _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, imm8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xE5: { // sbc zz
         ADDR_ZEROPAGE();
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xF5: { // sbc zz, x
         ADDR_ZEROPAGE_X();
-        _alu_adc(cpu, mem, zp8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, zp8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xF2: { // sbc (zz)
         ADDR_ZEROPAGE_IND();
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xE1: { // sbc (zz, x)
         ADDR_ZEROPAGE_IND_X();
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xF1: { // sbc (zz), y
         ADDR_ZEROPAGE_IND_Y();
-        _alu_adc(cpu, mem, ind8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, ind8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xED: { // sbc hhll
         ADDR_ABSOLUTE();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xFD: { // sbc hhll, x
         ADDR_ABSOLUTE_X();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
     case 0xF9: { // sbc hhll, y
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
-        _alu_adc(cpu, mem, abs8 ^ 0xFF, ec);
+        _alu_adc(cpu, mem, abs8 ^ 0xFF, sync_func, sync_arg);
         break;
     }
 
@@ -1575,21 +1581,21 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_IMMEDIATE();
         SYNC();
         SYNC();
-        ec->vdc_write(ec->arg0, 0, imm8);
+        mem_write(mem, MEMACCESS_CPU, MEM_HUC6270_START + 0, imm8);
         break;
     }
     case 0x13: { // st1
         ADDR_IMMEDIATE();
         SYNC();
         SYNC();
-        ec->vdc_write(ec->arg0, 1, imm8);
+        mem_write(mem, MEMACCESS_CPU, MEM_HUC6270_START + 2, imm8);
         break;
     }
     case 0x23: { // st2
         ADDR_IMMEDIATE();
         SYNC();
         SYNC();
-        ec->vdc_write(ec->arg0, 2, imm8);
+        mem_write(mem, MEMACCESS_CPU, MEM_HUC6270_START + 3, imm8);
         break;
     }
 
@@ -1852,23 +1858,23 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
     }
 
     case 0xF3: { // tai shsl, dhdl, lhll
-        _block_transfer(cpu, mem, BLTADDR_ALTERNATE, BLTADDR_INCREMENT, ec);
+        _block_transfer(cpu, mem, BLTADDR_ALTERNATE, BLTADDR_INCREMENT, sync_func, sync_arg);
         break;
     }
     case 0xC3: { // tdd shsl, dhdl, lhll
-        _block_transfer(cpu, mem, BLTADDR_DECREMENT, BLTADDR_DECREMENT, ec);
+        _block_transfer(cpu, mem, BLTADDR_DECREMENT, BLTADDR_DECREMENT, sync_func, sync_arg);
         break;
     }
     case 0xE3: { // tia shsl, dhdl, lhll
-        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_ALTERNATE, ec);
+        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_ALTERNATE, sync_func, sync_arg);
         break;
     }
     case 0x73: { // tii shsl, dhdl, lhll
-        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_INCREMENT, ec);
+        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_INCREMENT, sync_func, sync_arg);
         break;
     }
     case 0xD3: { // tin shsl, dhdl, lhll
-        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_FIXED, ec);
+        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_FIXED, sync_func, sync_arg);
         break;
     }
 

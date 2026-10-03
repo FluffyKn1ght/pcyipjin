@@ -1,23 +1,20 @@
 /**
  * @file emulator.h
- * @brief Contains the core structs and functions that "glue" the emulator together
+ * @brief Represents an active pcyipjin emulator (emulates a PC Engine/TurboGrafx-16 system)
  */
 
 #ifndef _PCYIPJIN_EMULATOR_H
 #define _PCYIPJIN_EMULATOR_H
 
-#include "callbacks.h"
+#include "memory.h"
 #include "pce/cpu.h"
-#include "pce/memory.h"
+#include "pce/vce.h"
 #include "pce/vdc.h"
 
 #define MASTER_CLOCK 21'147'727
 #define CPU_CLOCKDIV_HIGH 3
 #define CPU_CLOCKDIV_LOW 12
 #define TIMER_CLOCKDIV 3072
-#define VCE_CLOCKDIV_10MHZ 2
-#define VCE_CLOCKDIV_7MHZ 3
-#define VCE_CLOCKDIV_5MHZ 4
 
 /**
  * @brief Represents a pcyipjin emulator instance
@@ -25,17 +22,10 @@
 typedef struct {
     CPU* cpu;    /**< The CPU this emulator uses */
     Memory* mem; /**< The Memory bus this emulator uses */
-    VDC* vdc;    /**< The VDC this emulator uses */
+    VDC* vdc;    /**< The VDC chip this emulator uses */
+    VCE* vce;    /**< The VCE chip this emulator uses */
 
     u64 cycles; /**< Master clock cycle counter */
-
-    u16 vce_clock_modulo; /**< VCE clock module */
-    u16 vce_clock;        /**< VCE clock counter */
-
-    // TODO: Move to dedicated file
-    u16 timer_clock; /**< Timer clock counter */
-
-    EmuCallbacks callbacks; /**< Callback struct to pass to module functions */
 } Emulator;
 
 /**

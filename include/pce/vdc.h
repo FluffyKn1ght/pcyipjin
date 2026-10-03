@@ -9,6 +9,7 @@
 /**
  * @brief Represents the state of a HuC6270 VDC chip
  */
+#include "memory.h"
 typedef struct {
     // TODO: implement
 } VDC;
@@ -21,14 +22,30 @@ typedef struct {
 void vdc_reset(VDC* vdc);
 
 /**
- * @brief Writes data to the VDC (i.e. when running a ST0/ST1/ST2 instruction)
+ * @brief Reads data from the VDC
  *
  * @warning Invalid address will cause an assert fail!
  *
- * @param vdc The VDC to write the data to
- * @param addr Address to write to (0, 1 or 2)
- * @param value The value to write
+ * @see memory.h::BusReadFunc
  */
-void vdc_write(VDC* vdc, u8 addr, u8 value);
+u8 vdc_read(void* vdcptr, MemoryAccess access, u16 addr);
+
+/**
+ * @brief Writes data to the VDC
+ *
+ * @warning Invalid address will cause an assert fail!
+ *
+ * @see memory.h::BusWriteFunc
+ */
+void vdc_write(void* vdcptr, MemoryAccess access, u16 addr, u8 value);
+
+/**
+ * @brief Steps the provided VDC by 1 pixel clock cycle forward
+ *
+ * @note This should be called by the VCE to sync the VDC up to its pixel clock
+ *
+ * @param vdcptr The VDC to step forward
+ */
+void vdc_step(void* vdcptr);
 
 #endif

@@ -6,8 +6,7 @@
 #ifndef _PCYIPJIN_PCE_CPU_H
 #define _PCYIPJIN_PCE_CPU_H
 
-#include "callbacks.h"
-#include "pce/memory.h"
+#include "memory.h"
 #include "stdbool.h"
 
 typedef struct {
@@ -75,17 +74,19 @@ typedef struct {
  *
  * @param cpu The CPU to reset
  * @param mem The memory bus the CPU is connected to
- * @param ec Emulator communication callbacks
+ * @param sync_func The function to call to sync the system to the CPU
+ * @param sync_arg The argument to pass to sync_func
  */
-void cpu_reset(CPU* cpu, Memory* mem, EmuCallbacks* ec);
+void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg);
 
 /**
  * @brief Advances the CPU by 1 instruction.
  *
  * @param cpu The CPU to step forward
  * @param mem The memory bus the CPU is connected to
- * @param ec Emulator communication callbacks
+ * @param sync_func The function to call to sync the system to the CPU
+ * @param sync_arg The argument to pass to sync_func
  */
-void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ctx);
+void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg);
 
 #endif

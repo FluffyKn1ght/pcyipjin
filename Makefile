@@ -12,10 +12,6 @@ _CFLAGS :=
 _LDFLAGS :=
 _ASMFLAGS :=
 
-ifneq ($(shell uname -m),x86_64)
-$(error screw ur $(shell uname -m) ass bro (architecture not supported))
-endif
-
 ifneq ($(VERBOSE),1)
 V := @
 endif

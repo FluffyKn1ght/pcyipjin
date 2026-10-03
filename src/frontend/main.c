@@ -1,5 +1,5 @@
 #include "emulator.h"
-#include "pce/memory.h"
+#include "memory.h"
 #include "pce/testmem.h"
 #include <stdcountof.h>
 #include <stdlib.h>

@@ -1,4 +1,4 @@
-#include "pce/memory.h"
+#include "memory.h"
 #include <stdio.h>
 
 u8 testmem_read(void* ptr, MemoryAccess _access, u32 addr) {
