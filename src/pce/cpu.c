@@ -838,6 +838,78 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         break;
     }
 
+    case 0x06: { // asl zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        u8 result = _alu_asl(cpu, mem, zp8, ec);
+        WRITE(zp_addr, result);
+        break;
+    }
+    case 0x16: { // asl zz, x
+        ADDR_ZEROPAGE_X();
+        SYNC();
+        u8 result = _alu_asl(cpu, mem, zp8, ec);
+        WRITE(zp_addr + cpu->x, result);
+        break;
+    }
+    case 0x0E: { // asl hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_asl(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x1E: { // asl hhll
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_asl(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x0A: { // asl a
+        SYNC();
+        cpu->acc = _alu_asl(cpu, mem, cpu->acc, ec);
+        break;
+    }
+
+    case 0x46: { // lsr zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        u8 result = _alu_lsr(cpu, mem, zp8, ec);
+        WRITE(zp_addr, result);
+        break;
+    }
+    case 0x56: { // lsr zz, x
+        ADDR_ZEROPAGE_X();
+        SYNC();
+        u8 result = _alu_lsr(cpu, mem, zp8, ec);
+        WRITE(zp_addr + cpu->x, result);
+        break;
+    }
+    case 0x4E: { // lsr hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_lsr(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x5E: { // lsr hhll
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_lsr(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x4A: { // lsr a
+        SYNC();
+        cpu->acc = _alu_lsr(cpu, mem, cpu->acc, ec);
+        break;
+    }
+
     case 0xE9: { // sbc #nn
         ADDR_IMMEDIATE();
         _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
