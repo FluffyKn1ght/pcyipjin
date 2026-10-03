@@ -189,12 +189,10 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
 #define STACK_PUSH(what)                                                                           \
     DBGPRINT("push $%0X2 to stack, sp=$%02X=>$%02X", what, cpu->sp, cpu->sp - 1);                  \
     WRITE(0x2100 | cpu->sp, (what));                                                               \
-    SYNC();                                                                                        \
     cpu->sp--;
 
 #define STACK_PULL(dest)                                                                           \
     DBGPRINT("pull from stack, sp=$%02X=>$%02X", cpu->sp, cpu->sp + 1);                            \
-    SYNC();                                                                                        \
     cpu->sp++;                                                                                     \
     READ(dest, 0x2100 | cpu->sp);
 
@@ -1570,38 +1568,46 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
     }
 
     case 0x48: { // pha
+        SYNC();
         STACK_PUSH(cpu->acc);
         break;
     }
     case 0x08: { // php
+        SYNC();
         STACK_PUSH(cpu->p);
         break;
     }
     case 0xDA: { // phx
+        SYNC();
         STACK_PUSH(cpu->x);
         break;
     }
     case 0x5A: { // phy
+        SYNC();
         STACK_PUSH(cpu->y);
         break;
     }
 
     case 0x68: { // pla
+        SYNC();
         STACK_PULL(cpu->acc);
         SYNC();
         break;
     }
     case 0x28: { // plp
+        SYNC();
         STACK_PULL(cpu->p);
         SYNC();
         break;
     }
     case 0xFA: { // plx
+        SYNC();
         STACK_PULL(cpu->x);
         SYNC();
         break;
     }
     case 0x7A: { // ply
+        SYNC();
         STACK_PULL(cpu->y);
         SYNC();
         break;
@@ -1741,6 +1747,28 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         break;
     }
 
+    case 0xEA: { // nop
+        SYNC();
+        // hardest instruction to implement ever TwT
+        break;
+    }
+
+    case 0x00: { // brk
+        SYNC();
+        cpu->pc++;
+
+        STACK_PUSHPC();
+        STACK_PUSH(cpu->p | 0x10); // set b flag in pushed value
+
+        READ(u8 pc_low, VEC_IRQ2);
+        READ(u8 pc_high, VEC_IRQ2 + 1);
+
+        SYNC();
+        cpu->pc = pc_low | (pc_high << 8);
+
+        break;
+    }
+
     default: {
         if ((opcode <= 0x7F) && ((opcode & 0xF) == 0xF)) { // bbri zz, rr
             u8 bit = opcode >> 4;
@@ -1750,12 +1778,32 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
 
             BRANCH(!(zp8 & (0b1 << bit)));
         } else if ((opcode >= 0x8F) && ((opcode & 0xF) == 0xF)) { // bbsi zz, rr
-            u8 bit = opcode >> 4;
+            u8 bit = (opcode >> 4) - 8;
 
             ADDR_IMMEDIATE();
             LOAD_ZEROPAGE(imm8);
 
             BRANCH(zp8 & (0b1 << bit));
+        } else if ((opcode <= 0x77) && ((opcode & 0xF) == 0x7)) { // rmbi zz
+            u8 bit = opcode >> 4;
+
+            ADDR_ZEROPAGE();
+
+            SYNC();
+            SYNC();
+            zp8 &= ~(0x1 << bit);
+
+            WRITE(zp_addr, zp8);
+        } else if ((opcode >= 0x87) && ((opcode & 0xF) == 0x7)) { // smbi zz
+            u8 bit = (opcode >> 4) - 8;
+
+            ADDR_ZEROPAGE();
+
+            SYNC();
+            SYNC();
+            zp8 |= 0x1 << bit;
+
+            WRITE(zp_addr, zp8);
         } else {
             // TODO: not crash the entire program with abort()
             printf(FILEPOS "unknown opcode $%02x\n", opcode);
