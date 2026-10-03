@@ -16,7 +16,7 @@ const u16 CLOCK_MODULOS[2] = {VCE_CLOCKDIV_5MHZ, VCE_CLOCKDIV_7MHZ};
 static void _vce_step(VCE* vce) { printf(FILEPOS "_vce_step: stub\n"); }
 
 void vce_reset(VCE* vce) {
-    memset(vce->vram.byte, 0, sizeof(vce->vram.byte));
+    memset(vce->cram.byte, 0, sizeof(vce->cram.byte));
     vce->clock_modulo = CLOCK_MODULOS[0];
     vce->clock_counter = vce->clock_modulo;
 }
@@ -31,11 +31,11 @@ u8 vce_read(void* vceptr, MemoryAccess access, u32 addr) {
     u8 a0 = internal_addr % 2;
 
     if (reg == REG_CTR) {
-        u8 value = vce->vram.byte[vce->cta + a0];
+        u8 value = vce->cram.byte[vce->cta + a0];
 
         if (a0 == 1) {
             vce->cta++;
-            vce->cta &= countof(vce->vram.color) - 1;
+            vce->cta &= countof(vce->cram.color) - 1;
         }
 
         return value;
@@ -76,11 +76,11 @@ void vce_write(void* vceptr, MemoryAccess access, u32 addr, u8 value) {
             value &= 0x1;
         }
 
-        vce->vram.byte[vce->cta + a0] = value;
+        vce->cram.byte[vce->cta + a0] = value;
 
         if (a0 == 1) {
             vce->cta++;
-            vce->cta &= countof(vce->vram.color) - 1;
+            vce->cta &= countof(vce->cram.color) - 1;
         }
 
         break;

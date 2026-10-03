@@ -36,7 +36,7 @@ typedef struct {
     union {
         BRG333 color[512]; /**< Video memory (VRAM) of the VCE chip (512 9-bit bytes) */
         u8 byte[1024];
-    } vram;
+    } cram;
 
     u16 cta; /**< Color Table Address register */
 
