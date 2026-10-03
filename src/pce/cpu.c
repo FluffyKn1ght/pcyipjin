@@ -11,6 +11,13 @@
 
 const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
 
+typedef enum : u8 {
+    BLTADDR_FIXED,     /**< Fixed */
+    BLTADDR_INCREMENT, /**< +1 */
+    BLTADDR_DECREMENT, /**< -1 */
+    BLTADDR_ALTERNATE, /**< +1 then -1 */
+} BltAddressType;
+
 #define VEC_RESET 0xFFFE
 #define VEC_NMI 0xFFFC
 #define VEC_TIMER 0xFFFA
@@ -66,7 +73,7 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
 #define ADDR_IMPLIED_TMA()                                                                         \
     DBGPRINT("will now read mpr register id");                                                     \
     READ(TMAMPRReg mpr, cpu->pc++);
-#define ADDR_IMPLIED_TAI()                                                                         \
+#define ADDR_IMPLIED_BLT()                                                                         \
     DBGPRINT("will now read TAI source (2 bytes)");                                                \
     READ(cpu->x, cpu->pc++);                                                                       \
     READ(cpu->sh, cpu->pc++);                                                                      \
@@ -379,6 +386,81 @@ static void _alu_tsb(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, EmuCallb
     cpu->status.n = operand_a & 0x80;
     cpu->status.v = operand_a & 0x40;
     return;
+}
+
+inline static u16 _blt_modify_addr(CPU* cpu, u16 addr, BltAddressType addr_type) {
+    switch (addr_type) {
+    case BLTADDR_FIXED: {
+        // do nothing lol
+        break;
+    }
+    case BLTADDR_INCREMENT: {
+        addr++;
+        break;
+    }
+    case BLTADDR_DECREMENT: {
+        addr--;
+        break;
+    }
+    case BLTADDR_ALTERNATE: {
+        bool* alternate = cpu->_blt_alternate + cpu->_blt_alternate_idx;
+
+        if (*alternate) {
+            addr--;
+        } else {
+            addr++;
+        }
+
+        *alternate = !*alternate;
+
+        cpu->_blt_alternate_idx++;
+        cpu->_blt_alternate_idx %= 2;
+
+        break;
+    }
+    }
+
+    return addr;
+}
+
+static void _block_transfer(CPU* cpu, Memory* mem, BltAddressType src_addr_type,
+                            BltAddressType dest_addr_type, EmuCallbacks* ec) {
+    // waste 4 cycles
+    SYNC();
+    SYNC();
+    SYNC();
+    SYNC();
+
+    cpu->_blt_alternate[0] = false;
+    cpu->_blt_alternate[1] = false;
+    cpu->_blt_alternate_idx = 0;
+
+    ADDR_IMPLIED_BLT();
+
+    STACK_PUSH(cpu->y);
+    STACK_PUSH(cpu->acc);
+    STACK_PUSH(cpu->x);
+
+    u8 value;
+    do {
+        READ(value, cpu->blt_source);
+        WRITE(cpu->blt_dest, value);
+
+        cpu->blt_length--;
+        SYNC();
+
+        cpu->blt_source = _blt_modify_addr(cpu, cpu->blt_source, src_addr_type);
+        SYNC();
+
+        cpu->blt_dest = _blt_modify_addr(cpu, cpu->blt_dest, dest_addr_type);
+        SYNC();
+
+        SYNC();
+    } while (cpu->blt_length);
+
+    STACK_PULL(cpu->x);
+    STACK_PULL(cpu->acc);
+    STACK_PULL(cpu->y);
 }
 
 void cpu_reset(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
@@ -1766,6 +1848,27 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         SYNC();
         cpu->pc = pc_low | (pc_high << 8);
 
+        break;
+    }
+
+    case 0xF3: { // tai shsl, dhdl, lhll
+        _block_transfer(cpu, mem, BLTADDR_ALTERNATE, BLTADDR_INCREMENT, ec);
+        break;
+    }
+    case 0xC3: { // tdd shsl, dhdl, lhll
+        _block_transfer(cpu, mem, BLTADDR_DECREMENT, BLTADDR_DECREMENT, ec);
+        break;
+    }
+    case 0xE3: { // tia shsl, dhdl, lhll
+        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_ALTERNATE, ec);
+        break;
+    }
+    case 0x73: { // tii shsl, dhdl, lhll
+        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_INCREMENT, ec);
+        break;
+    }
+    case 0xD3: { // tin shsl, dhdl, lhll
+        _block_transfer(cpu, mem, BLTADDR_INCREMENT, BLTADDR_FIXED, ec);
         break;
     }
 

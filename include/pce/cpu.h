@@ -26,9 +26,27 @@ typedef struct {
  * @brief Represents the state of an emulated HuC6280 CPU
  */
 typedef struct {
-    u8 acc; /**< Accumulator register (ACC) */
-    u8 x;   /**< X register */
-    u8 y;   /**< Y register */
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    union {
+        struct {
+            u8 acc; /**< Accumulator register (ACC) */
+            u8 lh;  /**< Block transfer length high (LH). Paired with ACC to get a 16-bit value */
+
+            u8 x;  /**< X register */
+            u8 sh; /**< Block transfer source high (SH). Paired with X to get a 16-bit value */
+
+            u8 y;  /**< Y register */
+            u8 dh; /**< Block transfer destination high (DH). Paired with Y to get a 16-bit value */
+        };
+
+        u16 blt_length; /**< Block transfer length register pair (LH + ACC) */
+        u16 blt_source; /**< Block transfer source register pair (SH + X) */
+        u16 blt_dest;   /**< Block transfer destination register pair (DH + Y) */
+    };
+#else
+#error Unsupported byte order
+#endif
+
     u8 sp;  /**< Stack pointer */
     u16 pc; /**< Program counter */
 
@@ -36,10 +54,6 @@ typedef struct {
         CPUStatus status; /**< Status register, as a CPUStatus bitfield */
         u8 p;             /**< Status register, as a byte */
     };
-
-    u8 sh; /**< Block transfer source high (SH). Paired with X to get a 16-bit value */
-    u8 dh; /**< Block transfer destination high (DH). Paired with Y to get a 16-bit value */
-    u8 lh; /**< Block transfer length high (LH). Paired with ACC to get a 16-bit value */
 
     // TODO: Interrupt stuffs
     // TODO: Timer
@@ -49,7 +63,11 @@ typedef struct {
 
     bool high_speed; /**< Whether the CPU is running at 7MHz high speed */
 
-    bool _alu_discard; /**< Whether the next ALU result should be discarded (i.e. cmp/cpx/cpy) */
+    bool _alu_discard;      /**< (internal) Whether the next ALU result should be discarded (i.e.
+                               cmp/cpx/cpy) */
+    bool _blt_alternate[2]; /**< (internal) Whether the alternating source/destination address will
+                            be incremented or decremented */
+    u8 _blt_alternate_idx;  /**< (internal) Which boolean to use in _blt_alternate */
 } CPU;
 
 /**
