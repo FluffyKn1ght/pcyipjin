@@ -910,6 +910,78 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         break;
     }
 
+    case 0x26: { // rol zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        u8 result = _alu_rol(cpu, mem, zp8, ec);
+        WRITE(zp_addr, result);
+        break;
+    }
+    case 0x36: { // rol zz, x
+        ADDR_ZEROPAGE_X();
+        SYNC();
+        u8 result = _alu_rol(cpu, mem, zp8, ec);
+        WRITE(zp_addr + cpu->x, result);
+        break;
+    }
+    case 0x2E: { // rol hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_rol(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x3E: { // rol hhll
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_rol(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x2A: { // rol a
+        SYNC();
+        cpu->acc = _alu_rol(cpu, mem, cpu->acc, ec);
+        break;
+    }
+
+    case 0x66: { // ror zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        u8 result = _alu_ror(cpu, mem, zp8, ec);
+        WRITE(zp_addr, result);
+        break;
+    }
+    case 0x76: { // ror zz, x
+        ADDR_ZEROPAGE_X();
+        SYNC();
+        u8 result = _alu_ror(cpu, mem, zp8, ec);
+        WRITE(zp_addr + cpu->x, result);
+        break;
+    }
+    case 0x6E: { // ror hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_ror(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x7E: { // ror hhll
+        ADDR_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        SYNC();
+        u8 result = _alu_ror(cpu, mem, abs8, ec);
+        WRITE(addr, result);
+        break;
+    }
+    case 0x6A: { // ror a
+        SYNC();
+        cpu->acc = _alu_ror(cpu, mem, cpu->acc, ec);
+        break;
+    }
+
     case 0xE9: { // sbc #nn
         ADDR_IMMEDIATE();
         _alu_adc(cpu, mem, imm8 ^ 0xFF, ec);
