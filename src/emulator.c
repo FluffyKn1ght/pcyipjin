@@ -24,9 +24,24 @@ Emulator* emu_create() {
     Emulator* emu = calloc(1, sizeof(Emulator));
 
     emu->cpu = calloc(1, sizeof(CPU));
-    emu->mem = calloc(1, sizeof(Memory) + sizeof(BusDevice) * BUS_DEVICE_COUNT);
     emu->vce = calloc(1, sizeof(VCE));
     emu->vdc = calloc(1, sizeof(VDC));
+
+    emu->mem = calloc(1, sizeof(Memory) + sizeof(BusDevice) * BUS_DEVICE_COUNT);
+
+    mem_attachdev(emu->mem, &(BusDevice){.userdata = emu->vce,
+                                         .start_addr = MEM_HUC6260_START,
+                                         .end_addr = MEM_HUC6260_END,
+                                         .read = vce_read,
+                                         .write = vce_write,
+                                         .free = free});
+
+    mem_attachdev(emu->mem, &(BusDevice){.userdata = emu->vdc,
+                                         .start_addr = MEM_HUC6270_START,
+                                         .end_addr = MEM_HUC6270_END,
+                                         .read = vce_read,
+                                         .write = vce_write,
+                                         .free = free});
 
     return emu;
 }
