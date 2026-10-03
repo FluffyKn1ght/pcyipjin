@@ -151,15 +151,19 @@ const u8 MPR_TMA_2I_VALUES[8] = {0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80};
     READ(s8 rel8, cpu->pc++);
 #define ADDR_IMM_ZEROPAGE()                                                                        \
     ADDR_IMMEDIATE();                                                                              \
+    SYNC();                                                                                        \
     ADDR_ZEROPAGE();
 #define ADDR_IMM_ZEROPAGE_X()                                                                      \
     ADDR_IMMEDIATE();                                                                              \
+    SYNC();                                                                                        \
     ADDR_ZEROPAGE_X();
 #define ADDR_IMM_ABSOLUTE()                                                                        \
     ADDR_IMMEDIATE();                                                                              \
+    SYNC();                                                                                        \
     ADDR_ABSOLUTE();
 #define ADDR_IMM_ABSOLUTE_X()                                                                      \
     ADDR_IMMEDIATE();                                                                              \
+    SYNC();                                                                                        \
     ADDR_ABSOLUTE_X();
 
 #define SETZN(value)                                                                               \
@@ -363,6 +367,22 @@ static u8 _alu_ror(CPU* cpu, Memory* mem, u8 operand, EmuCallbacks* ec) {
     return result;
 }
 
+static void _alu_bit(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, EmuCallbacks* ec) {
+    u8 result = operand_a & operand_b;
+    cpu->status.z = result == 0;
+    cpu->status.n = operand_a & 0x80;
+    cpu->status.v = operand_a & 0x40;
+    return;
+}
+
+static void _alu_tsb(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, EmuCallbacks* ec) {
+    u8 result = operand_a | operand_b;
+    cpu->status.z = result == 0;
+    cpu->status.n = operand_a & 0x80;
+    cpu->status.v = operand_a & 0x40;
+    return;
+}
+
 void cpu_reset(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
     cpu->status.i = true;
     cpu->status.d = false;
@@ -485,6 +505,93 @@ void cpu_step(CPU* cpu, Memory* mem, EmuCallbacks* ec) {
         ADDR_ABSOLUTE_Y();
         READ(u8 abs8, addr);
         _alu_and(cpu, mem, abs8, ec);
+        break;
+    }
+
+    case 0x89: { // bit #nn
+        ADDR_IMMEDIATE();
+        SYNC();
+        _alu_bit(cpu, mem, imm8, cpu->acc, ec);
+        break;
+    }
+    case 0x24: { // bit zz
+        ADDR_ZEROPAGE();
+        _alu_bit(cpu, mem, zp8, cpu->acc, ec);
+        break;
+    }
+    case 0x34: { // bit zz, x
+        ADDR_ZEROPAGE();
+        _alu_bit(cpu, mem, zp8, cpu->acc, ec);
+        break;
+    }
+    case 0x2C: { // bit hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        _alu_bit(cpu, mem, abs8, cpu->acc, ec);
+        break;
+    }
+    case 0x3C: { // bit hhll, x
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        _alu_bit(cpu, mem, abs8, cpu->acc, ec);
+        break;
+    }
+
+    case 0x83: { // tst #nn, zz
+        ADDR_IMM_ZEROPAGE();
+        SYNC();
+        _alu_bit(cpu, mem, imm8, zp8, ec);
+        break;
+    }
+    case 0xA3: { // tst #nn, zz
+        ADDR_IMM_ZEROPAGE();
+        SYNC();
+        _alu_bit(cpu, mem, imm8, zp8, ec);
+        break;
+    }
+    case 0x93: { // tst #nn, hhll
+        ADDR_IMM_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        _alu_bit(cpu, mem, imm8, abs8, ec);
+        break;
+    }
+    case 0xB3: { // tst #nn, hhll, x
+        ADDR_IMM_ABSOLUTE_X();
+        READ(u8 abs8, addr);
+        SYNC();
+        _alu_bit(cpu, mem, imm8, abs8, ec);
+        break;
+    }
+
+    case 0x14: { // trb zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        SYNC();
+        _alu_bit(cpu, mem, zp8, ~cpu->acc, ec);
+        break;
+    }
+    case 0x1C: { // trb hhll
+        ADDR_ABSOLUTE();
+        READ(u8 abs8, addr);
+        SYNC();
+        SYNC();
+        _alu_bit(cpu, mem, abs8, ~cpu->acc, ec);
+        break;
+    }
+
+    case 0x04: { // tsb zz
+        ADDR_ZEROPAGE();
+        SYNC();
+        SYNC();
+        _alu_tsb(cpu, mem, zp8, ~cpu->acc, ec);
+        break;
+    }
+    case 0x0C: { // tsb hhll
+        ADDR_ZEROPAGE();
+        SYNC();
+        SYNC();
+        _alu_tsb(cpu, mem, zp8, ~cpu->acc, ec);
         break;
     }
 
