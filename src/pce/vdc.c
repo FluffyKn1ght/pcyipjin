@@ -3,6 +3,21 @@
 #include <assert.h>
 #include <stdio.h>
 
+#define REG_WRITE(addr, reg, mask)                                                                 \
+    case addr: {                                                                                   \
+        reg = ((reg) & (0xFF >> (a0 * 8))) | (value << (a0 * 8));                                  \
+        reg &= (mask);                                                                             \
+        break;                                                                                     \
+    }
+
+#define VRAM_ADDR_MASK 0x7FFF
+#define CR_MASK 0b1111111111111
+#define RCR_MASK 0b111111111
+#define BXR_MASK 0b111111111
+#define BYR_MASK 0b11111111
+#define MWR_MASK 0b11111111
+#define DCR_MASK 0b11111
+
 void vdc_reset(VDC* vdc) {
     vdc->reg = 0;
     vdc->status.byte = 0;
@@ -48,6 +63,39 @@ void vdc_write(void* vdcptr, MemoryAccess access, u16 addr, u8 value) {
         }
     } else {
         switch (vdc->reg) {
+            REG_WRITE(VDC_REG_MAWR, vdc->mawr, VRAM_ADDR_MASK);
+            REG_WRITE(VDC_REG_MARR, vdc->marr, VRAM_ADDR_MASK);
+        case VDC_REG_VWR_VRR: {
+            // TODO: write vram and bump mawr
+            break;
+        }
+            REG_WRITE(VDC_REG_CR, vdc->cr.word, CR_MASK);
+            REG_WRITE(VDC_REG_RCR, vdc->rcr, RCR_MASK);
+            REG_WRITE(VDC_REG_BXR, vdc->bxr, BXR_MASK);
+            REG_WRITE(VDC_REG_BYR, vdc->byr, BYR_MASK);
+            REG_WRITE(VDC_REG_MWR, vdc->mwr.word, MWR_MASK);
+            REG_WRITE(VDC_REG_DCR, vdc->dcr.word, DCR_MASK);
+            REG_WRITE(VDC_REG_SOUR, vdc->sour, VRAM_ADDR_MASK);
+            REG_WRITE(VDC_REG_DESR, vdc->desr, VRAM_ADDR_MASK);
+
+        case VDC_REG_LENR: {
+            vdc->lenr = (vdc->lenr & (0xFF >> (a0 * 8))) | (value << (a0 * 8));
+            if (a0 == 1) {
+                vdc->vram_dma_state = VDC_DMA_ARMED;
+            }
+
+            break;
+        }
+
+        case VDC_REG_DVSSR: {
+            vdc->dvssr = (vdc->dvssr & (0xFF >> (a0 * 8))) | (value << (a0 * 8));
+            if (a0 == 1) {
+                vdc->satb_dma_state = VDC_DMA_ARMED;
+            }
+
+            break;
+        }
+
         default: {
             printf(FILEPOS "unknown vdc register $%02X\n", vdc->reg);
             assert(false);
