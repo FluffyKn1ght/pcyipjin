@@ -92,7 +92,7 @@ void vce_tick(VCE* vce, u16 clocks, void (*vdc_tick_func)(void*), void* vdc_tick
     vce->clock_counter -= clocks;
     while (vce->clock_counter <= 0) {
         vce->clock_counter += vce->clock_modulo;
-        _vce_step(vce);
         vdc_tick_func(vdc_tick_arg);
+        _vce_step(vce);
     }
 }

@@ -30,13 +30,22 @@ typedef union {
 } BRG333;
 
 /**
+ * @brief Represents a 16-color BRG333 pallete
+ */
+typedef BRG333 VCEPallete[16];
+
+/**
  * @brief Represents the state of a HuC6260 VCE chip
  */
 typedef struct {
     union {
-        BRG333 color[512]; /**< Video memory (VRAM) of the VCE chip (512 9-bit bytes) */
+        BRG333 color[512];
         u8 byte[1024];
-    } cram;
+        struct {
+            VCEPallete bg[16];
+            VCEPallete spr[16];
+        } pallete;
+    } cram; /**< Color memory (CRAM) of the VCE chip (512 9-bit bytes) */
 
     u16 cta; /**< Color Table Address register */
 
