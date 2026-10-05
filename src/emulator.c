@@ -17,7 +17,7 @@ static void _emu_cpu_sync(void* emuptr) {
     printf(FILEPOS "cycle %lu\n", emu->cycles);
 #endif
 
-    vce_tick(emu->vce, clocks, vdc_step, (void*)emu->vdc);
+    vce_tick(emu->vce, clocks, vdc_tick, (void*)emu->vdc);
 }
 
 Emulator* emu_create() {

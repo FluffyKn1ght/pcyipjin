@@ -8,12 +8,12 @@
 #define REG_CR 0  // Control Register
 #define REG_CTA 1 // Color Table Address
 #define REG_CTW 2 // Color Table Write
-#define REG_CTR 3 // Color Table Read
+#define REG_CTR 2 // Color Table Read
 
 // note: the reason this is an array is that there was something written about 10MHz mode
 const u16 CLOCK_MODULOS[2] = {VCE_CLOCKDIV_5MHZ, VCE_CLOCKDIV_7MHZ};
 
-static void _vce_step(VCE* vce, u8 vdc_vd_in) { printf(FILEPOS "_vce_step: stub\n"); }
+static void _vce_step(VCE* vce, VCEInput input) { printf(FILEPOS "_vce_step: stub\n"); }
 
 void vce_reset(VCE* vce) {
     memset(vce->cram.byte, 0, sizeof(vce->cram.byte));
@@ -88,7 +88,7 @@ void vce_write(void* vceptr, MemoryAccess access, u32 addr, u8 value) {
     }
 }
 
-void vce_tick(VCE* vce, u16 clocks, u8 (*vdc_tick_func)(void*), void* vdc_tick_arg) {
+void vce_tick(VCE* vce, u16 clocks, VCEInput (*vdc_tick_func)(void*), void* vdc_tick_arg) {
     vce->clock_counter -= clocks;
     while (vce->clock_counter <= 0) {
         vce->clock_counter += vce->clock_modulo;

@@ -54,6 +54,15 @@ typedef struct {
 } VCE;
 
 /**
+ * @brief Defines the expected input format for the VCE
+ */
+typedef struct {
+    bool blank : 1; /**< If true, ignore whatever is in `color` and output black */
+    bool spbg : 1;  /**< Pin VD8 (SPBG for VDC) */
+    u8 color; /**< The color the VCE should fetch from CRAM, encode and output (pins VD0-VD7) */
+} VCEInput;
+
+/**
  * @brief Resets the provided VCE
  *
  * @warning Invalid address will cause an assert fail!
@@ -88,6 +97,6 @@ void vce_write(void* vceptr, MemoryAccess access, u32 addr, u8 value);
  * @param vdc_tick_func The function to call to tick the VDC every VCE clock cycle
  * @param vdc_tick_arg The argument to pass to vdc_tick_func
  */
-void vce_tick(VCE* vce, u16 clocks, u8 (*vdc_tick_func)(void*), void* vdc_tick_arg);
+void vce_tick(VCE* vce, u16 clocks, VCEInput (*vdc_tick_func)(void*), void* vdc_tick_arg);
 
 #endif

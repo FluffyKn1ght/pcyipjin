@@ -3,6 +3,7 @@
  * @brief Emulates a HuC6270 VDC (Video Display Controller) chip
  */
 
+#include "pce/vce.h"
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error Unsupported byte order
 #endif
@@ -45,19 +46,16 @@ typedef enum : u8 {
  * @brief Represents the different states of a HuC6270 VDC
  */
 typedef enum : u8 {
-    VDC_STATE_VBLANK_AFTER = 0, /** [VDS] Blank scanlines after VSync pulse (VBlank)
-                                 */
-    VDC_STATE_HSYNC,            /** [HSW] Horizontal sync pulse (HBlank) */
-    VDC_STATE_HBLANK_BEFORE,    /** [HDS] Blank space before scanline output (HBlank) */
-    VDC_STATE_RENDER,           /** [HDW] Actively rendering scanline */
-    VDC_STATE_HBLANK_AFTER,     /** [HDE] Blank space after scaline output (HBlank) */
-    VDC_STATE_VBLANK_BEFORE,    /** [VCR] Blank scanlines after picture output (VBlank/BURST) */
-    VDC_STATE_VSYNC,            /** [VSW] Vertical sync pulse (VBlank/BURST) */
+    VDC_STATE_FRAMESTART = 0, /**< Frame start */
+    VDC_STATE_VBLANK = 1,     /**< [VSW] Vertical blank after end of frame (VBlank) */
+    VDC_STATE_HSYNC,          /**< [HSW] Horizontal sync pulse (HBlank) */
+    VDC_STATE_HBLANK_BEFORE,  /**< [HDS] Blank space before scanline output (HBlank) */
+    VDC_STATE_RENDER,         /**< [HDW] Actively rendering scanline */
+    VDC_STATE_HBLANK_AFTER,   /**< [HDE] Blank space after scaline output (HBlank) */
+    VDC_STATE_BURST,          /**< Rendering is off (BB == SB == 0) (FBlank/BURST) */
 } VDCState;
 #define VDC_STATE_IS_HBLANK(n)                                                                     \
     ((n) == VDC_STATE_HSYNC || (n) == VDC_STATE_HBLANK_BEFORE || (n) == VDC_STATE_HBLANK_AFTER)
-#define VDC_STATE_IS_VBLANK(n)                                                                     \
-    ((n) == VDC_STATE_VBLANK_BEFORE || (n) == VDC_STATE_VSYNC || (n) == VDC_STATE_VSYNC_AFTER)
 
 /**
  * @brief Represents the different VRAM access width modes on a HuC6270
@@ -263,8 +261,8 @@ typedef union {
     u16 word;
 
     struct {
-        u8 hdw : 7; /**< Horizontal Display Width (+1) */
-        u8 hde : 7; /**< Horizontal Display End Position (+1) */
+        u8 hdw : 7; /**< Horizontal Display Width (-1) */
+        u8 hde : 7; /**< Horizontal Display End Position (-1) */
     };
 } VDC_HDRRegister;
 
@@ -275,8 +273,8 @@ typedef union {
     u16 word;
 
     struct {
-        u8 vsw : 5; /**< Vertical Sync Pulse Width (+1) */
-        u8 vds;     /**< Vertical Display Start Position (+2) */
+        u8 vsw : 5; /**< Vertical Sync Pulse Width (-1) */
+        u8 vds;     /**< Vertical Display Start Position (-2) */
     };
 } VDC_VPRRegister;
 
@@ -284,8 +282,10 @@ typedef union {
  * @brief Represents the state of a HuC6270 VDC chip
  */
 typedef struct {
-    VDCState state;   /**< The current state of the VDC */
-    u16 state_cycles; /**< Cycles left before state switch */
+    VDCState state;      /**< The current state of the VDC */
+    s16 charcycle_count; /**< CHARACTER cycle counter (1 char cycle = 8 dot cycles) */
+    s8 dotcycle_count;   /**< Dot cycle counter */
+    s16 scanline_count;  /**< Scanline counter */
 
     VDCRegister reg;  /**< The currently selected register */
     VDCStatus status; /**< The status register of the VDC */
@@ -308,8 +308,8 @@ typedef struct {
 
     u16 dvssr; /**< The current value of the DVSSR register */
 
-    VDC_DMAState vram_dma_state; /**< VRAM=>VRAM block-transfer state */
-    VDC_DMAState satb_dma_state; /**< VRAM=>SATB block-transfer state */
+    VDC_DMAState vram_dma_state : 2; /**< VRAM=>VRAM block-transfer state */
+    VDC_DMAState satb_dma_state : 2; /**< VRAM=>SATB block-transfer state */
 
     VDC_HSRRegister hsr; /**< The current value of the HSR register */
     VDC_HDRRegister hdr; /**< The current value of the HDR register */
@@ -317,22 +317,25 @@ typedef struct {
     u16 vdw : 9;         /**< Current VDW setting */
     u8 vcr;              /**< Current VCR setting */
 
-    bool irq; /**< If true, an IRQ1 interrupt was requested by the VDC (for one reason or
-                 another) */
+    bool irq : 1;        /**< If true, an IRQ1 interrupt was requested by the VDC (for one reason or
+                         another) */
+    bool bg_visible : 1; /**< Whether to show the background */
+    bool sprites_visible : 1; /**< Whether to show the sprites */
 
-    bool bg_visible;      /**< Whether to show the background */
-    bool sprites_visible; /**< Whether to show the sprites */
+    u16 _bgscroll_x;     /**< (internal) The actual background X scroll value used when rendering */
+    u16 _bgscroll_y;     /**< (internal) The actual background Y scroll value used when rendering */
+    u16 _vscreen_size_x; /**< (internal) The actual X size of the virtual screen used when rendering
+                          (in BG tiles) */
+    u16 _vscreen_size_y; /**< (internal) The actual Y size of the virtual screen used when rendering
+                          (in BG tiles) */
 
-    u16 _bgscroll_x;    /**< (internal) The actual background X scroll value used when rendering */
-    u16 _bgscroll_y;    /**< (internal) The actual background Y scroll value used when rendering */
-    u16 _screen_size_x; /**< (internal) The actual X size of the virtual screen used when rendering
-                          (in BG tiles) */
-    u16 _screen_size_y; /**< (internal) The actual Y size of the virtual screen used when rendering
-                          (in BG tiles) */
-    bool _render_sprites; /**< (internal) Whether sprites are to rendererd this scanline */
-    bool _render_bg;      /**< (internal) Whether the BG is to be rendererd this scanline */
-    bool _use_alt_cg; /**< (internal) Whether the CG will use blocks 0 and 1 or 2 or 3 in 4 cycle
-                         mode */
+    bool _render_sprites : 1; /**< (internal) Whether sprites are to be rendererd this scanline */
+    bool _render_bg : 1;      /**< (internal) Whether the BG is to be rendererd this scanline */
+    bool _use_alt_cg : 1;     /**< (internal) Whether the CG will use blocks 0 and 1 or 2 or 3 in 4
+                              cycle mode */
+
+    VDC_VRAMAccess _vram_access : 2;    /**< (internal) The VRAM access width to use this frame */
+    VDCSpriteAccess _sprite_access : 2; /**< (internal) The sprite access width to use this frame */
 } VDC;
 
 /**
@@ -375,14 +378,14 @@ u8 vdc_read(void* vdcptr, MemoryAccess access, u16 addr);
 void vdc_write(void* vdcptr, MemoryAccess access, u16 addr, u8 value);
 
 /**
- * @brief Steps the provided VDC by 1 pixel clock cycle forward
+ * @brief Ticks the provided VDC by 1 pixel clock cycle forward
  *
  * @note This should be called by the VCE so the VDC is synced up to its pixel clock
  *
- * @param vdcptr The VDC to step forward
+ * @param vdcptr The VDC to tick
  *
  * @return The color the VCE should output to the CRT
  */
-u8 vdc_step(void* vdcptr);
+VCEInput vdc_tick(void* vdcptr);
 
 #endif
