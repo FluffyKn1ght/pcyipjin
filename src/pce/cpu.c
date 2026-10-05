@@ -1878,6 +1878,20 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         break;
     }
 
+    case 0x54: { // csl
+        SYNC();
+        SYNC();
+        cpu->high_speed = false;
+        break;
+    }
+
+    case 0xD4: { // csh
+        SYNC();
+        SYNC();
+        cpu->high_speed = true;
+        break;
+    }
+
     default: {
         if ((opcode <= 0x7F) && ((opcode & 0xF) == 0xF)) { // bbri zz, rr
             u8 bit = opcode >> 4;
