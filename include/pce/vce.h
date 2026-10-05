@@ -88,6 +88,6 @@ void vce_write(void* vceptr, MemoryAccess access, u32 addr, u8 value);
  * @param vdc_tick_func The function to call to tick the VDC every VCE clock cycle
  * @param vdc_tick_arg The argument to pass to vdc_tick_func
  */
-void vce_tick(VCE* vce, u16 clocks, void (*vdc_tick_func)(void*), void* vdc_tick_arg);
+void vce_tick(VCE* vce, u16 clocks, u8 (*vdc_tick_func)(void*), void* vdc_tick_arg);
 
 #endif

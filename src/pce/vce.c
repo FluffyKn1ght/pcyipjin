@@ -13,7 +13,7 @@
 // note: the reason this is an array is that there was something written about 10MHz mode
 const u16 CLOCK_MODULOS[2] = {VCE_CLOCKDIV_5MHZ, VCE_CLOCKDIV_7MHZ};
 
-static void _vce_step(VCE* vce) { printf(FILEPOS "_vce_step: stub\n"); }
+static void _vce_step(VCE* vce, u8 vdc_vd_in) { printf(FILEPOS "_vce_step: stub\n"); }
 
 void vce_reset(VCE* vce) {
     memset(vce->cram.byte, 0, sizeof(vce->cram.byte));
@@ -88,11 +88,10 @@ void vce_write(void* vceptr, MemoryAccess access, u32 addr, u8 value) {
     }
 }
 
-void vce_tick(VCE* vce, u16 clocks, void (*vdc_tick_func)(void*), void* vdc_tick_arg) {
+void vce_tick(VCE* vce, u16 clocks, u8 (*vdc_tick_func)(void*), void* vdc_tick_arg) {
     vce->clock_counter -= clocks;
     while (vce->clock_counter <= 0) {
         vce->clock_counter += vce->clock_modulo;
-        vdc_tick_func(vdc_tick_arg);
-        _vce_step(vce);
+        _vce_step(vce, vdc_tick_func(vdc_tick_arg));
     }
 }

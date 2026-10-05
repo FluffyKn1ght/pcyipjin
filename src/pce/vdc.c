@@ -2,6 +2,15 @@
 #include "memory.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+/*
+ * TODO LIST:
+ * - Correct(ish) memory access width emulation
+ * - State machine and timing stuff
+ * - Framebuffer output
+ * - Emulator callbacks (interrupts, frame done, etc.)
+ */
 
 #define REG_WRITE(addr, reg, mask)                                                                 \
     case addr: {                                                                                   \
@@ -16,11 +25,36 @@
 #define BXR_MASK 0b111111111
 #define BYR_MASK 0b11111111
 #define MWR_MASK 0b11111111
-#define DCR_MASK 0b11111
+#define DCR_MASK 0x1F
+#define HSR_MASK 0b0111111100011111
+#define HDR_MASK 0b0111111101111111
+#define VPR_MASK 0b1111111100011111
+#define VDR_MASK 0x01FF
+#define VCR_MASK 0xFF
+
+VDC* vdc_create() {
+    VDC* vdc = calloc(1, sizeof(VDC));
+
+    vdc->vram = malloc(sizeof(VDC_VRAM));
+    vdc->satb = malloc(sizeof(VDC_SATB));
+
+    vdc->bg_visible = true;
+    vdc->sprites_visible = true;
+
+    return vdc;
+}
+
+void vdc_destroy(VDC* vdc) {
+    free(vdc->satb);
+    free(vdc->vram);
+    free(vdc);
+}
 
 void vdc_reset(VDC* vdc) {
     vdc->reg = 0;
     vdc->status.byte = 0;
+
+    // todo: reset everything else
 }
 
 u8 vdc_read(void* vdcptr, MemoryAccess access, u16 addr) {
@@ -77,6 +111,11 @@ void vdc_write(void* vdcptr, MemoryAccess access, u16 addr, u8 value) {
             REG_WRITE(VDC_REG_DCR, vdc->dcr.word, DCR_MASK);
             REG_WRITE(VDC_REG_SOUR, vdc->sour, VRAM_ADDR_MASK);
             REG_WRITE(VDC_REG_DESR, vdc->desr, VRAM_ADDR_MASK);
+            REG_WRITE(VDC_REG_HSR, vdc->hsr.word, HSR_MASK);
+            REG_WRITE(VDC_REG_HDR, vdc->hdr.word, HDR_MASK);
+            REG_WRITE(VDC_REG_VPR, vdc->vpr.word, VPR_MASK);
+            REG_WRITE(VDC_REG_VDR, vdc->vdw, VDR_MASK);
+            REG_WRITE(VDC_REG_VCR, vdc->vcr, VCR_MASK);
 
         case VDC_REG_LENR: {
             vdc->lenr = (vdc->lenr & (0xFF >> (a0 * 8))) | (value << (a0 * 8));
@@ -105,8 +144,10 @@ void vdc_write(void* vdcptr, MemoryAccess access, u16 addr, u8 value) {
     }
 }
 
-void vdc_step(void* vdcptr) {
+u8 vdc_step(void* vdcptr) {
     VDC* vdc = (VDC*)vdcptr;
 
     printf(FILEPOS "vdc_step: stub\n");
+
+    return 0;
 }
