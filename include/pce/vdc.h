@@ -287,6 +287,9 @@ typedef struct {
     s8 dotcycle_count;   /**< Dot cycle counter */
     s16 scanline_count;  /**< Scanline counter */
 
+    u8 x; /**< Current rendering X position */
+    u8 y; /**< Current rendering Y position */
+
     VDCRegister reg;  /**< The currently selected register */
     VDCStatus status; /**< The status register of the VDC */
 
@@ -294,7 +297,7 @@ typedef struct {
     VDC_SATB* satb; /**< The 512 bytes (256 words) of SATB RAM located inside the VDC */
 
     u16 mawr;            /**< The current value of the MAWR register */
-    u16 marr;            /**< The current value of the MAWR register */
+    u16 marr;            /**< The current value of the MARR register */
     VDCControl cr;       /**< The current value of the CR register */
     u16 rcr;             /**< The current value of the RCR register */
     u16 bxr;             /**< The current value of the BXR register (applies next scanline) */
@@ -317,8 +320,8 @@ typedef struct {
     u16 vdw : 9;         /**< Current VDW setting */
     u8 vcr;              /**< Current VCR setting */
 
-    bool irq : 1;        /**< If true, an IRQ1 interrupt was requested by the VDC (for one reason or
-                         another) */
+    bool irq1 : 1;       /**< If true, an IRQ1 interrupt was requested by the VDC (for one reason or
+                        another) */
     bool bg_visible : 1; /**< Whether to show the background */
     bool sprites_visible : 1; /**< Whether to show the sprites */
 
@@ -333,6 +336,13 @@ typedef struct {
     bool _render_bg : 1;      /**< (internal) Whether the BG is to be rendererd this scanline */
     bool _use_alt_cg : 1;     /**< (internal) Whether the CG will use blocks 0 and 1 or 2 or 3 in 4
                               cycle mode */
+    bool _allow_vram_access
+        : 1; /**< (internal) Whether to allow the CPU to access VRAM this cycle */
+    bool _sm3_fetch_alt_bitplanes : 1; /**< (internal) Whether to fetch sprite planes SG1 and SG3 vs
+                                          SG0 and SG2 when SM mode 3 is used */
+
+    u16 _horiz_charcycles; /**< Horizontal display width to be used this frame (in charcycles) */
+    u16 _vert_charcycles;  /**< Vertical display width to be used this frame (in charcycles) */
 
     VDC_VRAMAccess _vram_access : 2;    /**< (internal) The VRAM access width to use this frame */
     VDCSpriteAccess _sprite_access : 2; /**< (internal) The sprite access width to use this frame */

@@ -36,9 +36,19 @@
 #define VDR_MASK 0x01FF
 #define VCR_MASK 0xFF
 
-static VCEInput _vdc_render(VDC* vdc) {
-    printf(FILEPOS "_vdc_render: stub\n");
-    return (VCEInput){};
+#define VBLANK_SCANLINES (vdc->hsr.hsw + 1 + vdc->hsr.hds + 1 + vdc->hdr.hdw + 1 + vdc->hdr.hde + 1)
+#define BLANK_OUT ((VCEInput){.blank = true, .spbg = 1, .color = 0})
+
+const u8 VSCREEN_SIZES[8][2] = {{32, 32}, {64, 32}, {128, 32}, {128, 32},
+                                {32, 64}, {64, 64}, {128, 64}, {128, 64}};
+
+const bool VRAM_CPU_READ[4][8] = {{1, 0, 1, 0, 1, 0, 1, 0},
+                                  {0, 0, 1, 1, 0, 0, 0, 0},
+                                  {0, 0, 1, 1, 0, 0, 0, 0},
+                                  {0, 0, 0, 0, 0, 0, 0, 0}};
+
+static VCEInput _vdc_render(VDC* vdc) { 
+    return (VCEInput){}; 
 }
 
 static VCEInput _vdc_step(VDC* vdc) {
@@ -53,21 +63,19 @@ static VCEInput _vdc_step(VDC* vdc) {
     if (vdc->state == VDC_STATE_BURST) {
         if (vdc->charcycle_count <= 0) {
             vdc->scanline_count--;
-            vdc->charcycle_count =
-                vdc->hsr.hsw + 1 + vdc->hsr.hds + 1 + vdc->hdr.hdw + 1 + vdc->hdr.hde + 1;
+            vdc->charcycle_count = VBLANK_SCANLINES;
         }
 
         if (vdc->scanline_count <= 0) {
             vdc->state = VDC_STATE_FRAMESTART;
         }
-        return (VCEInput){.blank = true, .spbg = 1, .color = 0};
+        return BLANK_OUT;
     }
 
     if (vdc->state == VDC_STATE_VBLANK) {
         if (vdc->charcycle_count <= 0) {
             vdc->scanline_count--;
-            vdc->charcycle_count =
-                vdc->hsr.hsw + 1 + vdc->hsr.hds + 1 + vdc->hdr.hdw + 1 + vdc->hdr.hde + 1;
+            vdc->charcycle_count = VBLANK_SCANLINES;
         }
 
         if (vdc->scanline_count <= 0) {
@@ -76,11 +84,20 @@ static VCEInput _vdc_step(VDC* vdc) {
                 vdc->state = VDC_STATE_BURST;
                 vdc->scanline_count = vdc->vdw + 1;
             } else {
+                vdc->_horiz_charcycles = vdc->hdr.hdw + 1;
+                vdc->_vert_charcycles = 0;
+                vdc->_vscreen_size_x = VSCREEN_SIZES[vdc->mwr.screen][0];
+                vdc->_vscreen_size_y = VSCREEN_SIZES[vdc->mwr.screen][1];
+                vdc->_sprite_access = vdc->mwr.sm;
+                vdc->_vram_access = vdc->mwr.vm;
+
                 vdc->state = VDC_STATE_HSYNC;
                 vdc->charcycle_count = vdc->hsr.hsw + 1;
                 vdc->scanline_count = vdc->vdw + 1;
             }
         }
+
+        return BLANK_OUT;
     }
 
     switch (vdc->state) {
@@ -88,6 +105,12 @@ static VCEInput _vdc_step(VDC* vdc) {
         if (vdc->charcycle_count <= 0) {
             vdc->state = VDC_STATE_HBLANK_BEFORE;
             vdc->charcycle_count = vdc->hsr.hds + 1;
+
+            vdc->_render_sprites = vdc->cr.sb;
+            vdc->_render_bg = vdc->cr.bb;
+            vdc->_bgscroll_x = vdc->bxr;
+            vdc->_bgscroll_y = vdc->byr;
+            vdc->_use_alt_cg = vdc->mwr.cg_mode;
         }
         break;
     }
@@ -175,7 +198,7 @@ void vdc_reset(VDC* vdc) {
     vdc->vram_dma_state = VDC_DMA_IDLE;
     vdc->satb_dma_state = VDC_DMA_IDLE;
 
-    vdc->irq = false;
+    vdc->irq1 = false;
 
     vdc->_bgscroll_x = 0;
     vdc->_bgscroll_y = 0;
@@ -184,8 +207,11 @@ void vdc_reset(VDC* vdc) {
     vdc->_render_sprites = false;
     vdc->_render_bg = false;
     vdc->_use_alt_cg = false;
+    vdc->_allow_vram_access = false;
+    vdc->_horiz_charcycles = 0;
+    vdc->_vert_charcycles = 0;
 
-    vdc->state = VDC_STATE_BURST;
+    vdc->state = VDC_STATE_FRAMESTART;
     vdc->charcycle_count = 0;
     vdc->dotcycle_count = 0;
 }
@@ -204,6 +230,7 @@ u8 vdc_read(void* vdcptr, MemoryAccess access, u16 addr) {
         } else {
             return vdc->status.byte;
         }
+        vdc->irq1 = false;
     } else {
         if (vdc->reg == VDC_REG_VWR_VRR) {
             // TODO
