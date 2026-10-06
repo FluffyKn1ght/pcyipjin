@@ -47,8 +47,12 @@ const bool VRAM_CPU_READ[4][8] = {{1, 0, 1, 0, 1, 0, 1, 0},
                                   {0, 0, 1, 1, 0, 0, 0, 0},
                                   {0, 0, 0, 0, 0, 0, 0, 0}};
 
-static VCEInput _vdc_render(VDC* vdc) { 
-    return (VCEInput){}; 
+static VCEInput _vdc_render(VDC* vdc) {
+    vdc->status.bits.busy = VRAM_CPU_READ[vdc->_vram_access][8 - vdc->dotcycle_count];
+
+    bool cg_reduced_depth = vdc->_vram_access == VDC_VM4_BAT_CG01;
+
+    return (VCEInput){};
 }
 
 static VCEInput _vdc_step(VDC* vdc) {

@@ -336,8 +336,6 @@ typedef struct {
     bool _render_bg : 1;      /**< (internal) Whether the BG is to be rendererd this scanline */
     bool _use_alt_cg : 1;     /**< (internal) Whether the CG will use blocks 0 and 1 or 2 or 3 in 4
                               cycle mode */
-    bool _allow_vram_access
-        : 1; /**< (internal) Whether to allow the CPU to access VRAM this cycle */
     bool _sm3_fetch_alt_bitplanes : 1; /**< (internal) Whether to fetch sprite planes SG1 and SG3 vs
                                           SG0 and SG2 when SM mode 3 is used */
 
