@@ -211,7 +211,7 @@ void vdc_reset(VDC* vdc) {
     vdc->_render_sprites = false;
     vdc->_render_bg = false;
     vdc->_use_alt_cg = false;
-    vdc->_allow_vram_access = false;
+
     vdc->_horiz_charcycles = 0;
     vdc->_vert_charcycles = 0;
 
