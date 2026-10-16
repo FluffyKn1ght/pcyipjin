@@ -1,6 +1,6 @@
 /**
  * @file pce/cpu.h
- * @brief Emulates a HuC6280 (MOS6502 variant) CPU
+ * @brief Emulates a HuC6280 CPU (MOS6502 variant)
  */
 
 #ifndef _PCYIPJIN_PCE_CPU_H
@@ -25,7 +25,6 @@ typedef struct {
  * @brief Represents the state of an emulated HuC6280 CPU
  */
 typedef struct {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
     union {
         struct {
             u8 acc; /**< Accumulator register (ACC) */
@@ -42,9 +41,6 @@ typedef struct {
         u16 blt_source; /**< Block transfer source register pair (SH + X) */
         u16 blt_dest;   /**< Block transfer destination register pair (DH + Y) */
     };
-#else
-#error Unsupported byte order
-#endif
 
     u8 sp;  /**< Stack pointer */
     u16 pc; /**< Program counter */
