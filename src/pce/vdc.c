@@ -108,6 +108,9 @@ static void _vdc_fifo_renderpx(HuC6270* vdc) {
     PCE_VDCOutput vdc_out = (PCE_VDCOutput){.bg = bg_out};
 
     queue_enqueue(vdc->_pixel_fifo, &vdc_out);
+
+    vdc->pixel++;
+    vdc->pixel %= VCE_MAX_X_SCREEN_SIZE;
 }
 
 static u16 _vdc_read_reg(HuC6270* vdc) {
