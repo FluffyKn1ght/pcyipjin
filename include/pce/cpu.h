@@ -6,6 +6,10 @@
 #ifndef _PCYIPJIN_PCE_CPU_H
 #define _PCYIPJIN_PCE_CPU_H
 
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error Unsupported byte order
+#endif
+
 #include "memory.h"
 #include "stdbool.h"
 
@@ -22,7 +26,7 @@ typedef struct {
 } CPUStatus;
 
 /**
- * @brief Represents the state of an emulated HuC6280 CPU
+ * @brief Represents a HuC6280 CPU (65C02 variant)
  */
 typedef struct {
     union {
@@ -62,8 +66,8 @@ typedef struct {
                                cmp/cpx/cpy) */
     bool _blt_alternate[2]; /**< (internal) Whether the alternating source/destination address will
                             be incremented or decremented */
-    u8 _blt_alternate_idx;  /**< (internal) Which boolean to use in _blt_alternate */
-} CPU;
+    u8 _blt_alternate_idx : 1; /**< (internal) Which boolean to use in _blt_alternate */
+} HuC6280;
 
 /**
  * @brief Resets the CPU state.
@@ -73,7 +77,7 @@ typedef struct {
  * @param sync_func The function to call to sync the system to the CPU
  * @param sync_arg The argument to pass to sync_func
  */
-void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg);
+void pce_cpu_reset(HuC6280* cpu, PCEMemory* mem, void (*sync_func)(void*), void* sync_arg);
 
 /**
  * @brief Advances the CPU by 1 instruction.
@@ -83,6 +87,6 @@ void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg);
  * @param sync_func The function to call to sync the system to the CPU
  * @param sync_arg The argument to pass to sync_func
  */
-void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg);
+void pce_cpu_step(HuC6280* cpu, PCEMemory* mem, void (*sync_func)(void*), void* sync_arg);
 
 #endif

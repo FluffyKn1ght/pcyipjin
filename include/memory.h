@@ -8,7 +8,7 @@
 
 #define MEM_UNDEFINED 0xFF
 
-#define BUS_DEVICE_COUNT 32
+#define MEM_BUS_DEVICE_COUNT 32
 
 #define MEM_HUC6270_START 0x1FE000
 #define MEM_HUC6270_END 0x1FE3FF
@@ -38,8 +38,8 @@ typedef enum : u8 {
     MEMACCESS_CPU, /**< Memory accesses coming from the CPU */
 } MemoryAccess;
 
-typedef u8 (*BusReadFunc)(void*, MemoryAccess, u32);
-typedef void (*BusWriteFunc)(void*, MemoryAccess, u32, u8);
+typedef u8 (*BusReadFunc)(void*, u32);
+typedef void (*BusWriteFunc)(void*, u32, u8);
 typedef void (*BusFreeFunc)(void*);
 
 /**
@@ -52,55 +52,62 @@ typedef struct {
     BusWriteFunc write; /**< Write function */
     BusFreeFunc free;   /**< Free function */
     void* userdata;     /**< Argument that will be passed into BusDevice functions */
-} BusDevice;
+} PCEBusDevice;
 
 /**
  * @brief Represents a memory bus with various devices connected to it.
  */
 typedef struct {
     u16 device_count;
-    BusDevice devices[BUS_DEVICE_COUNT];
-} Memory;
+    PCEBusDevice devices[MEM_BUS_DEVICE_COUNT];
+} PCEMemory;
 
 /**
- * @brief Attaches a device to the memory bus
+ * @brief Creates a new Memory instance
+ *
+ * @returns The created Memory instance
+ */
+PCEMemory* pce_mem_create();
+
+/**
+ * @brief Attaches a device to a PCEMemory bus
  *
  * @details This is not reversible, you can't detach a BusDevice once it's been connected (and
  * really, why would you need to?)
  *
- * @param mem The Memory bus to attach the device to
- * @param device The BusDevice to attach to the bus
+ * @param mem The memory bus to attach the device to
+ * @param device The PCEBusDevice to attach to the bus
  */
-void mem_attachdev(Memory* mem, BusDevice* device);
+void pce_mem_attachdev(PCEMemory* mem, PCEBusDevice* device);
 
 /**
- * @brief Reads a single byte from the memory bus
+ * @brief Reads a single byte from the PCEMemory bus
  *
- * @param mem The Memory bus to read from
+ * @param mem The memory bus to read from
  * @param access Which kind of memory access is occurring
  * @param addr The physical address to read from
  *
  * @return The read value
  */
-u8 mem_read(Memory* mem, MemoryAccess access, u32 addr);
+u8 pce_mem_read(PCEMemory* mem, u32 addr);
 
 /**
- * @brief Writes a single byte to the memory bus
+ * @brief Writes a single byte to a PCEMemory bus
  *
- * @param mem The Memory bus to write to
+ * @param mem The memory bus to write to
  * @param access Which kind of memory access is occurring
  * @param addr The physical address to write to
  * @param value The value to write to the bus
  *
  * @return The read value
  */
-void mem_write(Memory* mem, MemoryAccess access, u32 addr, u8 value);
+void pce_mem_write(PCEMemory* mem, u32 addr, u8 value);
 
 /**
- * @brief Frees a Memory bus and all of its BusDevice objects
+ * @brief Frees a PCEMemory bus and all of its BusDevice objects
  *
- * @param mem The Memory bus to free
+ * @param mem The memory bus to free
  */
-void mem_free(Memory* mem);
+void pce_mem_free(PCEMemory* mem);
 
 #endif

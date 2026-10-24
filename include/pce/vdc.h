@@ -1,399 +1,383 @@
 /**
  * @file pce/vdc.h
- * @brief Emulates a HuC6270 VDC (Video Display Controller) chip
+ * @brief Emulates a HuC6270 Video Display Controller (VDC)
  */
-
-#include "pce/vce.h"
-#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
-#error Unsupported byte order
-#endif
 
 #ifndef _PCYIPJIN_PCE_VDC_H
 #define _PCYIPJIN_PCE_VDC_H
 
-#include "memory.h"
+#include "utils/queue.h"
+#define VDC_PREFETCH_TILE_COUNT 2
 
-typedef enum : u8 { MAINC_1 = 0, MAINC_20, MAINC_40, MAINC_80 } MAIncrementAmount;
-
-/**
- * @brief Represents the different registers of a HuC6270 VDC chip
- */
-typedef enum : u8 {
-    VDC_REG_MAWR = 0, /**< Memory Address Write */
-    VDC_REG_MARR,     /**< Memory Address Read */
-    VDC_REG_VWR_VRR,  /**< VRAM Data Read/Write */
-    VDC_REG_UNUSED03, /**< Unused */
-    VDC_REG_UNUSED04, /**< Unused, BUT "If number "04" is set in the AR, the system can not be
-                         assured of normal operation." */
-    VDC_REG_CR,       /**< Control */
-    VDC_REG_RCR,      /**< Scanning Line Detection */
-    VDC_REG_BXR,      /**< BGX Scroll */
-    VDC_REG_BYR,      /**< BGY Scroll */
-    VDC_REG_MWR,      /**< Memory Access Width */
-    VDC_REG_HSR,      /**< Horizontal Sync */
-    VDC_REG_HDR,      /**< Horizontal Display */
-    VDC_REG_VPR,      /**< Vertical Sync */
-    VDC_REG_VDR,      /**< Vertical Display */
-    VDC_REG_VCR,      /** Vertical Display End Position */
-    VDC_REG_DCR,      /**< Block Transfer Control */
-    VDC_REG_SOUR,     /** Block Transfer Source Address */
-    VDC_REG_DESR,     /** Block Transfer Destination Address */
-    VDC_REG_LENR,     /** Block Transfer Length */
-    VDC_REG_DVSSR,    /** VRAM<=>SATB Block Transfer Source */
-} VDCRegister;
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error Unsupported byte order
+#endif
 
 /**
- * @brief Represents the different states of a HuC6270 VDC
- */
-typedef enum : u8 {
-    VDC_STATE_FRAMESTART = 0, /**< Frame start */
-    VDC_STATE_VBLANK = 1,     /**< [VSW] Vertical blank after end of frame (VBlank) */
-    VDC_STATE_HSYNC,          /**< [HSW] Horizontal sync pulse (HBlank) */
-    VDC_STATE_HBLANK_BEFORE,  /**< [HDS] Blank space before scanline output (HBlank) */
-    VDC_STATE_RENDER,         /**< [HDW] Actively rendering scanline */
-    VDC_STATE_HBLANK_AFTER,   /**< [HDE] Blank space after scaline output (HBlank) */
-    VDC_STATE_BURST,          /**< Rendering is off (BB == SB == 0) (FBlank/BURST) */
-} VDCState;
-#define VDC_STATE_IS_HBLANK(n)                                                                     \
-    ((n) == VDC_STATE_HSYNC || (n) == VDC_STATE_HBLANK_BEFORE || (n) == VDC_STATE_HBLANK_AFTER)
-
-/**
- * @brief Represents the different VRAM access width modes on a HuC6270
- */
-typedef enum : u8 {
-    VDC_VM1_CBCNC0C1 = 0, /**< 1 - CPU BAT CPU --- CPU CG0 CPU CG1 */
-    VDC_VM2_BC01,         /**< 2 - BAT CPU CG0 CG1 */
-    VDC_VM3_BC01,         /**< same as VM2 */
-    VDC_VM4_BAT_CG01      /**< 4 - BAT CG0/CG1 */
-} VDC_VRAMAccess;
-
-/**
- * @brief Represents the different sprite access width modes on a HuC6270
- */
-typedef enum : u8 {
-    VDC_SM1_0123 = 0,  /**< 1 - SP0 SP1 SP2 SP3 SP0 SP1 SP2 SP3 */
-    VDC_SM2_SP02_SP13, /**< 2 - SP0/SP2 SP1/SP3 SP0/SP2 SP1/SP3 (LSB of pattern code selects SP0/SP1
-                         or SP2/SP3) */
-    VDC_SM2_0123,      /**< 2 - SP0 SP1 SP2 SP3 */
-    VDC_SM4_02_13 /** SP0SP2 SP1SP3 (SPO-SP3 are fetched during two consecutive character cycles.)
-                   */
-} VDCSpriteAccess;
-
-/**
- * @brief Represents different virtual screen sizes on a HuC6270
- */
-typedef enum : u8 {
-    VDC_SCRSIZE_32_32 = 0,
-    VDC_SCRSIZE_64_32,
-    VDC_SCRSIZE_128_32,
-    VDC_SCRSIZE_128_32_,
-    VDC_SCRSIZE_32_64,
-    VDC_SCRSIZE_64_64,
-    VDC_SCRSIZE_128_64,
-    VDC_SCRSIZE_128_64_,
-} VDCScreenSize;
-
-/**
- * @brief Represents different states of DMA (block transfer) operations
- */
-typedef enum : u8 {
-    VDC_DMA_IDLE,   /**< DMA transfer is not armed */
-    VDC_DMA_ARMED,  /**< DMA trasnfer is armed and will start soon */
-    VDC_DMA_ACTIVE, /**< DMA transfer is actively taking place */
-} VDC_DMAState;
-
-/**
- * @brief Represents the status register of a HuC6270 VDC chip
- */
-typedef union {
-    u8 byte; /**< The entire lower byte of the status value (upper byte is always 0) */
-    struct {
-        bool collide : 1;           /**< (CC) Sprite 0 collided with sprites #1-#63 */
-        bool over : 1;              /**< (OC) Sprite overflow/render error */
-        bool scnl_cmp : 1;          /**< (RC) Scanline compare */
-        bool blt_vram_satb_end : 1; /**< VRAM=>SATB block transfer ended */
-        bool blt_vram_end : 1;      /**< VRAM=>VRAM block transfer ended */
-        bool vblank : 1;            /**< Vertical blanking */
-        bool busy : 1;              /**< VRAM busy */
-    } bits; /**< The individual flags in the lower byte of the status value */
-} VDCStatus;
-
-/**
- * @brief Represents a single 16-bit of background tile pattern data.
+ * @brief Represents different registers of the HuC6270 VDC
  *
- * @details This equates to a single row of two 1-bit bitmaps.
+ * @note Assuming A1 == 1
  */
-typedef union {
-    struct {
-        u8 a;
-        u8 b;
-    } bitrows; /**< The individual rows of the 2 bitplanes */
-    u16 word;  /**< The entire row of tile data */
-} VDC_BGTileRow;
+typedef enum : u8 {
+    VDC_REG_MAWR,
+    VDC_REG_MARR,
+    VDC_REG_VWRW,
+    VDC_REG_UNK03,
+    VDC_REG_UNK04,
+    VDC_REG_CR,
+    VDC_REG_RCR,
+    VDC_REG_BXR,
+    VDC_REG_BYR,
+    VDC_REG_MWR,
+    VDC_REG_HSR,
+    VDC_REG_HDR,
+    VDC_REG_VPR,
+    VDC_REG_VDW,
+    VDC_REG_VCR,
+    VDC_REG_DCR,
+    VDC_REG_SOUR,
+    VDC_REG_DESR,
+    VDC_REG_LENR,
+    VDC_REG_DVSSR,
+    VDC_REG_COUNT
+} PCE_VDCRegister;
 
 /**
- * @brief Represents a single 8x8px background tile, made up of 4 1-bit bitplanes
+ * @brief Represents different values of the IW register on the HuC6270 VDC
+ */
+typedef enum : u8 {
+    VDC_IW_0X1 = 0x1,
+    VDC_IW_0X20 = 0x20,
+    VDC_IW_0X40 = 0x40,
+    VDC_IW_0X80 = 0x80
+} PCE_VDCAddrIncrement;
+
+/**
+ * @brief Represents different VRAM (CG) access widths on the HuC6270 VDC
+ */
+typedef enum : u8 {
+    VDC_VM_1,  /**< 8 accesses, CPU BAT CPU --- CPU CG0 CPU CG1 */
+    VDC_VM_2A, /**< 4 accesses, BAT CPU CG0 CG1 */
+    VDC_VM_2B, /**< 4 accesses, BAT CPU CG0 CG1 */
+    VDC_VM_4,  /**< 2 accesses, only 1 bitplane, BAT CG0/CG1 */
+} PCE_VDC_VRAMAccessWidth;
+
+/**
+ * @brief Represents different SG access widths on the HuC6270 VDC
+ */
+typedef enum : u8 {
+    VDC_SM_1,     /**< 8 accesses, SP0 SP1 SP2 SP3 SP0 SP1 SP2 SP3 */
+    VDC_SM_2_LSB, /**< LSB of pattern code selects (SP0, SP1) or (SP2, SP3), 4 accesses, SP0/SP2
+                     SP1/SP3 SP0/SP2 SP1/SP3 */
+    VDC_SM_2,     /**< SP0 SP1 SP0 SP1 */
+    VDC_SM_4,     /**< 2 consecutive character cycles, SP0 SP1 | SP2 SP3 */
+} PCE_VDCSpriteAccessWidth;
+
+/**
+ * @brief Represents different virtual screen sizes on the HuC6270 VDC
+ */
+typedef enum : u8 {
+    VDC_SCREEN_32_32,
+    VDC_SCREEN_64_32,
+    VDC_SCREEN_128_32,
+    VDC_SCREEN_128_32_,
+    VDC_SCREEN_32_64,
+    VDC_SCREEN_64_64,
+    VDC_SCREEN_128_64,
+    VDC_SCREEN_128_64_,
+    VDC_SCREEN_COUNT
+} PCE_VDC_VScreenSize;
+
+/**
+ * @brief Represents different states of SATB DMA on the HuC6270 VDC
+ */
+typedef enum : u8 {
+    VDC_SATBDMA_IDLE,   /**< SATB DMA wasn't armed yet */
+    VDC_SATBDMA_ARMED,  /**< SATB DMA was armed but it's not VBlank yet */
+    VDC_SATBDMA_ACTIVE, /**< SATB DMA is currently in progress */
+} PCE_VDC_SATBDMAState;
+
+/**
+ * @brief Represents different External Sync settings on the HuC6270 VDC
+ */
+typedef enum : u8 {
+    VDC_EXSYNC_FULL,    /**< Both VSYNC and HSYNC work as input (slave mode?) */
+    VDC_EXSYNC_VSYNC,   /**< VSYNC works as input, HSYNC is still an output */
+    VDC_EXSYNC_INVALID, /**< Invalid (logically this would make VSYNC output and HSYNC input) */
+    VDC_EXSYNC_OFF,     /**< Both VSYNC and HSYNC work as output (master mode?) */
+} PCE_VDCExternalSync;
+
+/**
+ * @brief Represents different states of the HuC6270 VDC
+ */
+typedef enum : s8 {
+    VDC_STATE_BURST =
+        -1, /**< FBlank, VDC isn't doing anything for the entire frame and VRAM is fully open */
+    VDC_STATE_VBLANK_VDS = 0,   /**< VBlank before frame start */
+    VDC_STATE_HSYNC,            /**< HSync pulse */
+    VDC_STATE_HBLANK_HDS,       /**< HBlank before scanline start */
+    VDC_STATE_HBLANK_HDS_PRIME, /**< The last 2 cycles of HBlank when the VDC prepares data for BG
+                                   rendering */
+    VDC_STATE_RENDER,           /**< Actual rendering */
+    VDC_STATE_HBLANK_HDE,       /**< HBlank after scanline end */
+    VDC_STATE_VBLANK_VCR,       /**< VBlank after frame end */
+    VDC_STATE_VSYNC,            /**< VSync pulse */
+    VDC_STATE_COUNT
+} PCE_VDCState;
+
+/**
+ * @brief Represents different sprite CGY settings on the HuC6270 VDC
+ */
+typedef enum : u8 { VDC_CGY_OFF, VDC_CGY_2CGY, VDC_CGY_INVALID, VDC_CGY_4CGY } VDCSpriteCGY;
+
+/**
+ * @brief Represents a Sprite Attribute Table (SAT) entry on the HuC6270 VDC
  */
 typedef struct {
-    VDC_BGTileRow ch0_ch1[8]; /**< Rows of bitplanes 1 and 2 */
-    VDC_BGTileRow ch2_ch3[8]; /**< Rows of bitplanes 3 and 4 */
-} VDC_BGTile;
+    u16 y : 10;  /**< Sprite Y coordinate */
+    u16 x : 10;  /**< Sprite X coordinate */
+    u16 pc : 11; /**< Pattern code */
+
+    u8 color : 4; /**< Sprite color */
+    u8 _pad1 : 3;
+    bool spbg : 1; /**< Sprite/background priority */
+    bool cgx : 1;  /**< Consecutive X display */
+    u8 _pad2 : 2;
+    bool xflip : 1;       /**< Mirror sprite(s) on X axis */
+    VDCSpriteCGY cgy : 2; /**< Consecutive Y display */
+    u8 _pad3 : 1;
+    bool yflip : 1; /**< Mirror sprite(s) on Y axis */
+} PCE_VDCSprite;
 
 /**
- * @brief Represents a single 16x16px 1-bit bitplane of a sprite tile
- */
-typedef u16 VDCSpriteBitplane[16];
-
-/**
- * @brief Represents a single 16x16px sprite tile, made up of 4 1-bit bitplanes
- */
-typedef struct {
-    VDCSpriteBitplane bitplanes[4]; /**< The 4 16x16px 1-bit bitplanes of the sprite tile */
-} VDCSpriteTile;
-
-/**
- * @brief Represents the 64KiB of video memory (VRAM) connected to a HuC6270 VDC
- *
- * @details The VRAM layout itself is entirely software-defined
- */
-typedef u16 VDC_VRAM[(64 * 1024) / 2];
-
-/**
- * @brief Represents a sprite attribute table from the SATB inside of a HuC6270
+ * @brief Represents a Background Attribute Table (BAT) entry on the HuC6270 VDC
  */
 typedef union {
-    u16 word[4]; /**< Raw access to the SAT data, as 4 consecutive 16-bit words */
-
+    u16 word; /**< The entire entry as a single word */
     struct {
-        u16 y : 10;       /**< Y coordinate (top of screen is 64) */
-        u16 x : 10;       /**< X coordinate (left of screen is 32) */
-        u16 pattern : 11; /**< Pattern code (10 upper bits of VRAM address + lowest bit switches
-                             between SG0-SG1 and SG2-SG3) */
+        u16 charcode
+            : 12; /**< Character code, upper 12 bits of a 16-bit pointer to tile pattern data */
+        u8 cgcolor : 4; /**< Upper 4 bits of the VCE CRAM address, basically a tile pallete */
+    };
+} PCE_VDC_BGAttrTableEntry;
+
+/**
+ * @brief Represents the output of a HuC6270 VDC chip
+ */
+typedef struct {
+    u8 bg;  /**< Background color */
+    u8 spr; /**< Sprite color */
+
+    bool spbg : 1;  /**< Whether the sprite color has priority over the background color */
+    bool vsync : 1; /**< Current VSYNC pin output value */
+    bool hsync : 1; /**< Current HSYNC pin output value */
+} PCE_VDCOutput;
+
+/**
+ * @brief Represents a HuC6270 Video Display Controller (VDC) chip
+ */
+typedef struct {
+    PCE_VDCSprite* satb; /**< Sprite Attribute Table Buffer (SATB). This should point to a
+                           VDCSprite[64]. */
+    u16* vram;           /**< Video RAM (VRAM). This should point to a 32K word (64KB) buffer */
+
+    PCE_VDCRegister ar : 5; /** Address Register */
+
+    union {
+        u16 word : 7;
         struct {
-            u8 pal : 4; /**< Area color code */
-            u8 _pad1 : 3;
-            bool spbg : 1; /**< Sprite/background priority */
-            u8 cgx : 1;    /**< Consecutive X rendering */
-            u8 _pad2 : 2;
-            bool xflip : 1; /**< Horizontal flip */
-            u8 cgy : 2;     /**< Consecutive Y rendering */
-            u8 _pad3 : 1;
-            bool yflip : 1; /**< Vertical flip */
+            bool cr : 1;  /**< Collision Detect */
+            bool or : 1;  /**< Over Detect */
+            bool rr : 1;  /**< Scanning Line Detect */
+            bool ds : 1;  /**< SATB DMA end */
+            bool dv : 1;  /**< VRAM DMA graceful end */
+            bool vd : 1;  /**< Vertical Blanking Period Detect (VBlank) */
+            bool bsy : 1; /**< VRAM latch buffer full */
         };
-    } sat; /** The actual SAT data fields */
-} VDCSprite;
+    } sr; /**< Status Register */
 
-/**
- * @brief Represents the 512 bytes of SATB (Sprite Attribute Table Buffer) RAM inside of a HuC6270
- */
-typedef VDCSprite VDC_SATB[64];
+    u16 mawr : 15; /**< Memory Address Write */
+    u16 marr : 15; /**< Memory Address Read */
 
-/**
- * @brief Represents the value of the CR register on a HuC6270
- */
-typedef union {
-    u16 word;
+    u16 vram_read_buf;         /**< VRAM read access buffer */
+    u16 vram_write_buf;        /**< VRAM write access buffer */
+    bool vram_access_is_write; /**< true = VRAM write, false = VRAM read */
 
-    struct {
-        bool ie_cc : 1; /**< [IE] Collision Detect */
-        bool ie_oc : 1; /**< [IE] Over Detect */
-        bool ie_rc : 1; /**< [IE] Scanning Line Detect */
-        bool ie_vc : 1; /**< [IE] Vertical Blanking Period Detect */
+    union {
+        u16 word : 13;
+        struct {
+            struct {
+                bool cc : 1;             /**< Collision Detect */
+                bool oc : 1;             /**< Over Detect */
+                bool rc : 1;             /**< Scanning Line Detect */
+                bool vc : 1;             /**< Vertical Blanking Period Detect */
+            } ie;                        /**< Interrupt Request Enable */
+            PCE_VDCExternalSync ex : 2;  /**< External Sync (does nothing, see VDC::slave) */
+            bool sb : 1;                 /**< Sprite Blanking [next line] */
+            bool bb : 1;                 /**< Background Blanking [next line] */
+            u8 te : 1;                   /**< DISP Output Select (not used) */
+            bool dr : 1;                 /**< Dynamic RAM Refresh (not used) */
+            PCE_VDCAddrIncrement iw : 2; /**< Memory Address Read/Write Register Increment Select */
+        };
+    } cr; /**< Control Register */
 
-        u8 ex : 2; /**< External Sync */
+    u16 rcr : 10; /**< Scanning Line Detection Register */
 
-        bool sb : 1; /**< Sprite Blanking (applies next scanline) */
-        bool bb : 1; /**< Background Blanking (applies next scanline) */
+    u16 bxr : 10; /**< BGX Scroll [next line] */
+    u16 byr : 9;  /**< BGY Scroll [next line] */
 
-        u8 te : 2; /**< DISP Output Select */
+    union {
+        u16 word : 8;
+        struct {
+            PCE_VDC_VRAMAccessWidth vm : 2;  /**< VRAM (CG) Access Width [next frame] */
+            PCE_VDCSpriteAccessWidth sm : 2; /**< SG Access Width [next frame] */
+            PCE_VDC_VScreenSize screen : 3;  /**< Virtual Screen Size [next frame] */
+            bool cm : 1; /**< CG block select for VM 4-clock mode (true = ch2, ch3; false = ch0,
+                            ch1) [next line] */
+        };
+    } mwr; /**< Memory Access Width Register */
 
-        bool dr : 1; /**< Dynamic RAM Refresh */
+    union {
+        u16 word : 15;
+        struct {
+            u8 hsw : 5; /**< Horizontal Sync Pulse Width - 1 [next frame] */
+            u8 hds : 7; /**< Horizontal Display Start Position - 1 [next frame] */
+        };
+    } hsr; /**< Horizontal Sync Register */
 
-        MAIncrementAmount iw : 2; /**< Memory Address Read/Write Register Increment Select */
-    };
-} VDCControl;
+    union {
+        u16 word : 15;
+        struct {
+            u8 hdw : 7; /**< Horizontal Display Width - 1 [next frame] */
+            u8 hde : 7; /**< Horizontal Display End Position - 1 [next frame] */
+        };
+    } hdr; /**< Horizontal Display Register */
 
-/**
- * @brief Represents the value of the MWR register on a HuC6270
- */
-typedef union {
-    u16 word;
+    union {
+        u16 word : 16;
+        struct {
+            u8 vsw : 5; /**< Vertical Sync Pulse Width - 1 [next frame] */
+            u8 vds;     /**< Vertical Display Start Position - 2 [next frame] */
+        };
+    } vpr; /**< Vertical Sync Register */
 
-    struct {
-        VDC_VRAMAccess vm : 2;    /**< VRAM Access width Mode */
-        VDCSpriteAccess sm : 2;   /**< Sprite Access Width Mode */
-        VDCScreenSize screen : 3; /**< Virtual screen size (applies next frame) */
-        bool cg_mode : 1; /**< Use character generator bitplanes 2 and 3 vs 0 and 1 (applies next
-                             scanline) */
-    };
-} VDCMemoryWidth;
+    union {
+        u16 word : 9;
+        struct {
+            u16 vdw : 9; /**< Vertical Display Width - 1 [next frame] */
+        };
+    } vdw; /**< Vertical Display Width Register */
 
-/**
- * @brief Represents the value of the DCR register on a HuC6270
- */
-typedef union {
-    u16 word;
+    union {
+        u16 word : 8;
+        struct {
+            u8 vcr; /**< Vertical Display End Position [next frame] */
+        };
+    } vcr; /**< Vertical Display End Position Register */
 
-    struct {
-        bool dsc : 1; /**< VRAM=>SATB Transfer Complete IRQ Enable */
-        bool dvc : 1; /**< VRAM=>VRAM Transfer Complete IRQ Enable */
-        bool sid : 1; /**< Source Address INC/DEC */
-        bool did : 1; /**< Destination Address INC/DEC */
-    };
-} VDC_DCRRegister;
+    union {
+        u16 word : 5;
+        struct {
+            bool dsc : 1; /**< SATB DMA Completed IRQ Enable */
+            bool dvc : 1; /**< VRAM DMA Completed IRQ Enable */
+            bool sid : 1; /**< VRAM DMA Source Address Increment/Decrement */
+            bool did : 1; /**< VRAM DMA Destination Address Increment/Decrement */
+            bool dsr : 1; /**< SATB DMA Automatic Start */
+        };
+    } dcr; /**< Block Transfer Control Register */
 
-/**
- * @brief Represents the value of the HSR register on a HuC6270
- */
-typedef union {
-    u16 word;
+    u16 sour : 15; /**< VRAM DMA Source */
+    u16 desr : 15; /**< VRAM DMA Destination */
+    u16 lenr;      /**< VRAM DMA Length - 1 */
 
-    struct {
-        u8 hsw : 5; /**< Horizontal Sync Pulse Width (+1) */
-        u8 hds : 7; /**< Horizontal Display Start Position (+1) */
-    };
-} VDC_HSRRegister;
+    u16 dvssr : 15; /**< SATB DMA Source */
 
-/**
- * @brief Represents the value of the HDR register on a HuC6270
- */
-typedef union {
-    u16 word;
+    bool vram_dma;                 /**< Whether VRAM DMA is currently underway */
+    PCE_VDC_SATBDMAState satb_dma; /**< The current state of SATB DMA */
 
-    struct {
-        u8 hdw : 7; /**< Horizontal Display Width (-1) */
-        u8 hde : 7; /**< Horizontal Display End Position (-1) */
-    };
-} VDC_HDRRegister;
+    bool irq1; /**< Interrupt Request output pin */
 
-/**
- * @brief Represents the value of the VPR register on a HuC6270
- */
-typedef union {
-    u16 word;
+    PCE_VDCState state;  /**< Current VDC state */
+    s16 charcycle_count; /**< Character cycle counter */
+    s16 dotcycle_count;  /**< Dotcycle counter */
+    s8 _vram_access_dotcycles;
 
-    struct {
-        u8 vsw : 5; /**< Vertical Sync Pulse Width (-1) */
-        u8 vds;     /**< Vertical Display Start Position (-2) */
-    };
-} VDC_VPRRegister;
+    u16 scanline : 9; /**< Current scanline */
+    u16 pixel : 11;   /**< Current pixel */
 
-/**
- * @brief Represents the state of a HuC6270 VDC chip
- */
-typedef struct {
-    VDCState state;      /**< The current state of the VDC */
-    s16 charcycle_count; /**< CHARACTER cycle counter (1 char cycle = 8 dot cycles) */
-    s8 dotcycle_count;   /**< Dot cycle counter */
-    s16 scanline_count;  /**< Scanline counter */
+    PCE_VDC_BGAttrTableEntry _temp_bat;
+    u16 _temp_cg[2];
 
-    u8 x; /**< Current rendering X position */
-    u8 y; /**< Current rendering Y position */
+    Queue* _pixel_fifo;
 
-    VDCRegister reg;  /**< The currently selected register */
-    VDCStatus status; /**< The status register of the VDC */
+    // Relatched every VBlank
 
-    VDC_VRAM* vram; /**< The 64KiB of VRAM connected to the VDC */
-    VDC_SATB* satb; /**< The 512 bytes (256 words) of SATB RAM located inside the VDC */
+    PCE_VDC_VRAMAccessWidth _latched_vm;
+    PCE_VDCSpriteAccessWidth _latched_sm;
+    PCE_VDC_VScreenSize _latched_screen;
+    u8 _latched_vscr_width : 7, _latched_vscr_height : 5;
+    u8 _latched_hsw : 5, _latched_hds : 7, _latched_hdw : 7, _latched_hde : 7;
+    u8 _latched_vsw : 5, _latched_vds, _latched_vcr;
+    u16 _latched_vdw : 9;
 
-    u16 mawr;            /**< The current value of the MAWR register */
-    u16 marr;            /**< The current value of the MARR register */
-    VDCControl cr;       /**< The current value of the CR register */
-    u16 rcr;             /**< The current value of the RCR register */
-    u16 bxr;             /**< The current value of the BXR register (applies next scanline) */
-    u16 byr;             /**< The current value of the BYR register (applies next scanline) */
-    VDCMemoryWidth mwr;  /**< The current value of the MWR register */
-    VDC_DCRRegister dcr; /**< The current value of the DCR register */
+    // Relatched every HBlank
 
-    u16 sour; /**< The current value of the SOUR register */
-    u16 desr; /**< The current value of the DESR register */
-    u16 lenr; /**< The current value of the LENR register */
-
-    u16 dvssr; /**< The current value of the DVSSR register */
-
-    VDC_DMAState vram_dma_state : 2; /**< VRAM=>VRAM block-transfer state */
-    VDC_DMAState satb_dma_state : 2; /**< VRAM=>SATB block-transfer state */
-
-    VDC_HSRRegister hsr; /**< The current value of the HSR register */
-    VDC_HDRRegister hdr; /**< The current value of the HDR register */
-    VDC_VPRRegister vpr; /**< The current value of the VPR register */
-    u16 vdw : 9;         /**< Current VDW setting */
-    u8 vcr;              /**< Current VCR setting */
-
-    bool irq1 : 1;       /**< If true, an IRQ1 interrupt was requested by the VDC (for one reason or
-                        another) */
-    bool bg_visible : 1; /**< Whether to show the background */
-    bool sprites_visible : 1; /**< Whether to show the sprites */
-
-    u16 _bgscroll_x;     /**< (internal) The actual background X scroll value used when rendering */
-    u16 _bgscroll_y;     /**< (internal) The actual background Y scroll value used when rendering */
-    u16 _vscreen_size_x; /**< (internal) The actual X size of the virtual screen used when rendering
-                          (in BG tiles) */
-    u16 _vscreen_size_y; /**< (internal) The actual Y size of the virtual screen used when rendering
-                          (in BG tiles) */
-
-    bool _render_sprites : 1; /**< (internal) Whether sprites are to be rendererd this scanline */
-    bool _render_bg : 1;      /**< (internal) Whether the BG is to be rendererd this scanline */
-    bool _use_alt_cg : 1;     /**< (internal) Whether the CG will use blocks 0 and 1 or 2 or 3 in 4
-                              cycle mode */
-    bool _sm3_fetch_alt_bitplanes : 1; /**< (internal) Whether to fetch sprite planes SG1 and SG3 vs
-                                          SG0 and SG2 when SM mode 3 is used */
-
-    u16 _horiz_charcycles; /**< Horizontal display width to be used this frame (in charcycles) */
-    u16 _vert_charcycles;  /**< Vertical display width to be used this frame (in charcycles) */
-
-    VDC_VRAMAccess _vram_access : 2;    /**< (internal) The VRAM access width to use this frame */
-    VDCSpriteAccess _sprite_access : 2; /**< (internal) The sprite access width to use this frame */
-} VDC;
+    bool _latched_cm;
+    u16 _latched_bgx : 10, _latched_bgy : 9;
+    bool _latched_bb, _latched_sb;
+} HuC6270;
 
 /**
  * @brief Creates a new VDC instance
  *
  * @return The created VDC
  */
-VDC* vdc_create();
+HuC6270* pce_vdc_create();
 
 /**
- * @brief Destroys and frees a VDC instance
+ * @brief Destroys a VDC instance
  *
- * @param vdc The VDC instance to free
+ * @param vdc The VDC to destroy
  */
-void vdc_destroy(VDC* vdc);
+void pce_vdc_destroy(HuC6270* vdc);
 
 /**
- * @brief Resets the VDC
+ * @brief Resets the provided VDC
  *
  * @param vdc The VDC to reset
  */
-void vdc_reset(VDC* vdc);
+void pce_vdc_reset(HuC6270* vdc);
 
 /**
- * @brief Reads data from the VDC
+ * @brief Steps the VDC forward by one pixel clock, returning its output.
  *
- * @warning Invalid address will cause an assert fail!
+ * @param vdc The VDC to step forward
  *
- * @see memory.h::BusReadFunc
+ * @return The 9-bit output values of the VDC, for use with vce_render()
+ *
+ * @see pce/vce.h::vce_encode()
  */
-u8 vdc_read(void* vdcptr, MemoryAccess access, u16 addr);
+PCE_VDCOutput pce_vdc_step(HuC6270* vdc);
 
 /**
- * @brief Writes data to the VDC
+ * @brief Reads a byte from the VDC
  *
- * @warning Invalid address will cause an assert fail!
+ * @param vdc The VDC to read from
+ * @param addr The address being read from, relative to the VCE's register I/O space
  *
- * @see memory.h::BusWriteFunc
+ * @return The value that was read
  */
-void vdc_write(void* vdcptr, MemoryAccess access, u16 addr, u8 value);
+u8 pce_vdc_read(HuC6270* vdc, u8 addr);
 
 /**
- * @brief Ticks the provided VDC by 1 pixel clock cycle forward
+ * @brief Writes a byte to the VDC
  *
- * @note This should be called by the VCE so the VDC is synced up to its pixel clock
- *
- * @param vdcptr The VDC to tick
- *
- * @return The color the VCE should output to the CRT
+ * @param vdc The VDC to read from
+ * @param addr The address being written to, relative to the VDC's register I/O space
+ * @param value The value to write
  */
-VCEInput vdc_tick(void* vdcptr);
+void pce_vdc_write(HuC6270* vdc, u8 addr, u8 value);
+
+extern const u16 PCE_VDC_VSCREEN_SIZES[VDC_SCREEN_COUNT][2];
 
 #endif

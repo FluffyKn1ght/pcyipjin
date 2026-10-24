@@ -1,102 +1,134 @@
 /**
  * @file pce/vce.h
- * @brief Emulates a HuC6260 VCE (Video Color Encoder) chip
+ * @brief Emulates a HuC6260 Video Color Encoder (VCE)
  */
+
+#define VCE_MAX_X_SCREEN_SIZE 565
+#define VCE_VDW_SCANLINE_COUNT 242
 
 #ifndef _PCYIPJIN_PCE_VCE_H
 #define _PCYIPJIN_PCE_VCE_H
 
 #include "memory.h"
+#include "pce/vdc.h"
 
-#define VCE_CLOCKDIV_10MHZ 2
-#define VCE_CLOCKDIV_7MHZ 3
-#define VCE_CLOCKDIV_5MHZ 4
-
-/**
- * @brief Represents an BRG (blue-red-green) color value, with 3 bits of depth per channel (9 bits
- * total)
- */
-typedef union {
-    struct __attribute__((packed)) {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-        u8 b : 3; /**< Blue channel */
-        u8 r : 3; /**< Red channel */
-        u8 g : 3; /**< Green channel */
-#else
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error Unsupported byte order
 #endif
+
+/**
+ * @brief Represents an 8-bit RGB color
+ */
+typedef union {
+    u32 rgb : 24; /**< The entire color as one 24-bit value */
+    struct {
+        u8 b; /**< im so blue */
+        u8 g; /**< im so green */
+        u8 r; /**< im so red */
     };
-    u16 value; /**< Complete 9-bit value */
-} BRG333;
+} RGB888;
 
 /**
- * @brief Represents a 16-color BRG333 pallete
+ * @brief Represents a 9-bit GRB color (3x 3-bit channels) used on the HuC6260 VCE
  */
-typedef BRG333 VCEPallete[16];
+typedef union {
+    u16 word : 9; /**< Combined color data, as a 9-bit word */
+    struct {
+        u8 b : 3;
+        u8 r : 3;
+        u8 g : 3;
+    }; /**< Individual color channels */
+} GRB333;
 
 /**
- * @brief Represents the state of a HuC6260 VCE chip
- */
-typedef struct {
-    union {
-        BRG333 color[512];
-        u8 byte[1024];
-        struct {
-            VCEPallete bg[16];
-            VCEPallete spr[16];
-        } pallete;
-    } cram; /**< Color memory (CRAM) of the VCE chip (512 9-bit bytes) */
-
-    u16 cta; /**< Color Table Address register */
-
-    u16 clock_modulo;  /**< VCE clock modulo */
-    s16 clock_counter; /**< VCE clock counter */
-} VCE;
-
-/**
- * @brief Defines the expected input format for the VCE
+ * @brief Represents a HuC6260 Video Color Encoder (VCE) chip
  */
 typedef struct {
-    bool blank : 1; /**< If true, ignore whatever is in `color` and output black */
-    bool spbg : 1;  /**< Pin VD8 (SPBG for VDC) */
-    u8 color; /**< The color the VCE should fetch from CRAM, encode and output (pins VD0-VD7) */
-} VCEInput;
+    s16 clock_counter; /**< Master clock counter */
+    u16 clock_modulo;  /**< Number of master clocks per VCE clock */
+
+    u16 cta : 9; /**< Color Table Address register */
+
+    u16 current_pos_x : 10; /**< Current X rendering position */
+    u8 current_pos_y;       /**< Current Y rendering position */
+
+    bool latched_hsync : 1; /**< Latched HSYNC pin state */
+    bool latched_vsync : 1; /**< Latched VSYNC pin state */
+    bool busy : 1; /**< If true, the frame buffer is currently being written to and I'll bite you if
+                   you try to read from it 3:< */
+    bool grayscale : 1; /**< Undocumented (thanks hudson #2 :_3) "strip colorburst" register
+                           according to DataCrystal TCRF, this just makes the image grayscale. */
+
+    GRB333* cram; /**< Color RAM. This should point to a GRB333[512] */
+
+    u16 frame_size_x : 10; /**< The max X size of the frame */
+    u8 frame_size_y;       /**< The max Y size of the frame */
+
+    RGB888* frame_out; /**< The rendered frame, in 8-bit RGB format. This should point
+                          to a buffer that can hold at least `MAX_X_SCREEN_SIZE*MAX_Y_SCREEN_SIZE`
+                          RGB888 values. */
+} HuC6260;
+
+/**
+ * @brief Creates a new VCE instance
+ *
+ * @return The created VCE
+ */
+HuC6260* pce_vce_create();
+
+/**
+ * @brief Destroys a VCE instance
+ *
+ * @param vce The VCE to destroy
+ */
+void pce_vce_destroy(HuC6260* vce);
 
 /**
  * @brief Resets the provided VCE
  *
- * @warning Invalid address will cause an assert fail!
- *
  * @param vce The VCE to reset
  */
-void vce_reset(VCE* vce);
+void pce_vce_reset(HuC6260* vce);
 
 /**
- * @brief Reads data from the VCE
+ * @brief Ticks the clock of the provided VCE forward.
  *
- * @warning Invalid address will cause an assert fail!
+ * @note This function is also responsible for telling when to step the rest of the graphics
+ * pipeline forward, as the VCE is the one that generates the pixel clock.
  *
- * @see memory.h::BusReadFunc
+ * @param vce The VCE whose clock to advance
+ *
+ * @return Whether it's time to step the graphics pipeline forward
  */
-u8 vce_read(void* vceptr, MemoryAccess access, u32 addr);
+bool pce_vce_tick(HuC6260* vce);
 
 /**
- * @brief Writes data to the VCE
+ * @brief Renders one pixel to the screen using the VCE.
  *
- * @warning Invalid address will cause an assert fail!
+ * @param vce The VCE to step forward
+ * @param vdc_out Current VDC output
  *
- * @see memory.h::BusWriteFunc
+ * @return Whether the frame has finished rendering. (VSync signal changed to true this frame)
  */
-void vce_write(void* vceptr, MemoryAccess access, u32 addr, u8 value);
+bool pce_vce_render(HuC6260* vce, PCE_VDCOutput vdc_out);
 
 /**
- * @brief Ticks the internal clock of the provided VCE
+ * @brief Reads a byte from the VCE
  *
- * @param vce The VCE to tick
- * @param clocks The amount of master clocks ticks that happened
- * @param vdc_tick_func The function to call to tick the VDC every VCE clock cycle
- * @param vdc_tick_arg The argument to pass to vdc_tick_func
+ * @param vce The VCE to read from
+ * @param addr The address being read from, relative to the VCE's register I/O space
+ *
+ * @return The value that was read
  */
-void vce_tick(VCE* vce, u16 clocks, VCEInput (*vdc_tick_func)(void*), void* vdc_tick_arg);
+u8 pce_vce_read(HuC6260* vce, u8 addr);
+
+/**
+ * @brief Writes a byte to the VCE
+ *
+ * @param vce The VCE to read from
+ * @param addr The address being written to, relative to the VCE's register I/O space
+ * @param value The value to write
+ */
+void pce_vce_write(HuC6260* vce, u8 addr, u8 value);
 
 #endif

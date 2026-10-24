@@ -8,7 +8,7 @@ BUILD_DIR := build
 
 include config.mk
 
-_CFLAGS :=
+_CFLAGS := -std=gnu2y -pedantic -masm=intel -Wno-pointer-arith
 _LDFLAGS :=
 _ASMFLAGS :=
 
@@ -50,8 +50,6 @@ _CFLAGS += $(shell pkgconf --cflags $(LIBS_PKGCONF))
 _LDFLAGS += $(shell pkgconf --libs $(LIBS_PKGCONF))
 endif
 
-_CFLAGS += -std=gnu2y -pedantic -masm=intel
-
 C_SOURCES := $(shell find $(SRC_DIR) -type f -name "*.c")
 C_OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(C_SOURCES))
 
@@ -72,6 +70,12 @@ $(TARGET): $(C_OBJECTS) $(ASM_OBJECTS)
 	$(V)@mkdir -p $(shell dirname $@)
 	@echo -e "Linking: $@"
 	$(V)$(CC) $(_LDFLAGS) $(LDFLAGS) -o $@ $^
+ifeq ($(STRIP),1)
+ifneq ($(DEBUG),1)
+	@echo -e "Stripping: $@"
+	$(V)strip $@
+endif
+endif
 
 cc_cmds:
 	$(V)bear -- $(CC) -xc -c -fsyntax-only -I"./$(INCLUDE_DIR)" -include "./$(INCLUDE_DIR)/preinc.h" $(_CFLAGS) $(CFLAGS) dummy.c

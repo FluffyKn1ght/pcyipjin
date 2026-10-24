@@ -5,6 +5,9 @@ TARGET_NAME := pcyipjin
 # This will define _SHARED in $(CC) if enabled
 SHARED ?= 0
 
+# Strip output binary of debug symbols (via strip)
+STRIP ?= 1
+
 # Compiler, assembler and linker flags
 CFLAGS ?=
 LDFLAGS ?=

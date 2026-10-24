@@ -24,17 +24,13 @@ typedef enum : u8 {
 #define READ_(dest, addr, id)                                                                      \
     SYNC();                                                                                        \
     u16 CONCAT(_read_temp_addr, id) = (addr);                                                      \
-    dest = mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, CONCAT(_read_temp_addr, id)));
+    dest = pce_mem_read(mem, _phys_addr(cpu, CONCAT(_read_temp_addr, id)));
 
 #define READ(dest, addr) READ_(dest, addr, __COUNTER__);
 
 #define WRITE(addr, value)                                                                         \
     SYNC();                                                                                        \
-    mem_write(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)), (value));
-
-#define DUMMY_READ(addr)                                                                           \
-    SYNC();                                                                                        \
-    mem_read(mem, MEMACCESS_CPU, _phys_addr(cpu, (addr)));
+    pce_mem_write(mem, _phys_addr(cpu, (addr)), (value));
 
 #define CALC_ZP_ADDR(dest, low)                                                                    \
     SYNC();                                                                                        \
@@ -197,7 +193,7 @@ static inline u8 _mpr_tma_2i_to_idx(u8 tma_2i) {
     assert(false);
 }
 
-static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
+static u32 _phys_addr(HuC6280* cpu, u16 logic_addr) {
     // get MPR register number
     u8 mpr_idx = (logic_addr & 0xF000) >> 13;
     assert(mpr_idx >= 0 && mpr_idx <= 7);
@@ -206,7 +202,7 @@ static u32 _phys_addr(CPU* cpu, u16 logic_addr) {
     return (logic_addr & 0x0FFF) + (cpu->mpr[mpr_idx] * 0x2000);
 }
 
-static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+static void _alu_adc(HuC6280* cpu, PCEMemory* mem, u8 operand_b, void (*sync_func)(void*),
                      void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
@@ -259,7 +255,7 @@ static void _alu_adc(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void
     ALU_SET_RESULT(final_result);
 }
 
-static void _alu_and(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+static void _alu_and(HuC6280* cpu, PCEMemory* mem, u8 operand_b, void (*sync_func)(void*),
                      void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
@@ -271,7 +267,7 @@ static void _alu_and(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void
     ALU_SET_RESULT(result);
 }
 
-static void _alu_ora(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+static void _alu_ora(HuC6280* cpu, PCEMemory* mem, u8 operand_b, void (*sync_func)(void*),
                      void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
@@ -283,7 +279,7 @@ static void _alu_ora(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void
     ALU_SET_RESULT(result);
 }
 
-static void _alu_eor(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void*),
+static void _alu_eor(HuC6280* cpu, PCEMemory* mem, u8 operand_b, void (*sync_func)(void*),
                      void* sync_arg) {
     u8 operand_a;
     ALU_GET_OPRERAND_A();
@@ -295,7 +291,8 @@ static void _alu_eor(CPU* cpu, Memory* mem, u8 operand_b, void (*sync_func)(void
     ALU_SET_RESULT(result);
 }
 
-static u8 _alu_asl(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
+static u8 _alu_asl(HuC6280* cpu, PCEMemory* mem, u8 operand, void (*sync_func)(void*),
+                   void* sync_arg) {
     cpu->status.c = operand & 0x80;
     u8 result = operand << 1;
 
@@ -304,7 +301,8 @@ static u8 _alu_asl(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), 
     return result;
 }
 
-static u8 _alu_lsr(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
+static u8 _alu_lsr(HuC6280* cpu, PCEMemory* mem, u8 operand, void (*sync_func)(void*),
+                   void* sync_arg) {
     cpu->status.c = operand & 0x1;
     u8 result = operand >> 1;
 
@@ -313,7 +311,8 @@ static u8 _alu_lsr(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), 
     return result;
 }
 
-static u8 _alu_rol(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
+static u8 _alu_rol(HuC6280* cpu, PCEMemory* mem, u8 operand, void (*sync_func)(void*),
+                   void* sync_arg) {
     bool new_carry = operand & 0x80;
     u8 result = operand << 1;
     result |= cpu->status.c;
@@ -324,7 +323,8 @@ static u8 _alu_rol(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), 
     return result;
 }
 
-static u8 _alu_ror(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), void* sync_arg) {
+static u8 _alu_ror(HuC6280* cpu, PCEMemory* mem, u8 operand, void (*sync_func)(void*),
+                   void* sync_arg) {
     bool new_carry = operand & 0x1;
     u8 result = operand >> 1;
     result |= cpu->status.c << 7;
@@ -335,8 +335,8 @@ static u8 _alu_ror(CPU* cpu, Memory* mem, u8 operand, void (*sync_func)(void*), 
     return result;
 }
 
-static void _alu_bit(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, void (*sync_func)(void*),
-                     void* sync_arg) {
+static void _alu_bit(HuC6280* cpu, PCEMemory* mem, u8 operand_a, u8 operand_b,
+                     void (*sync_func)(void*), void* sync_arg) {
     u8 result = operand_a & operand_b;
     cpu->status.z = result == 0;
     cpu->status.n = operand_a & 0x80;
@@ -344,8 +344,8 @@ static void _alu_bit(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, void (*s
     return;
 }
 
-static void _alu_tsb(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, void (*sync_func)(void*),
-                     void* sync_arg) {
+static void _alu_tsb(HuC6280* cpu, PCEMemory* mem, u8 operand_a, u8 operand_b,
+                     void (*sync_func)(void*), void* sync_arg) {
     u8 result = operand_a | operand_b;
     cpu->status.z = result == 0;
     cpu->status.n = operand_a & 0x80;
@@ -353,7 +353,7 @@ static void _alu_tsb(CPU* cpu, Memory* mem, u8 operand_a, u8 operand_b, void (*s
     return;
 }
 
-inline static u16 _blt_modify_addr(CPU* cpu, u16 addr, BltAddressType addr_type) {
+inline static u16 _blt_modify_addr(HuC6280* cpu, u16 addr, BltAddressType addr_type) {
     switch (addr_type) {
     case BLTADDR_FIXED: {
         // do nothing lol
@@ -388,7 +388,7 @@ inline static u16 _blt_modify_addr(CPU* cpu, u16 addr, BltAddressType addr_type)
     return addr;
 }
 
-static void _block_transfer(CPU* cpu, Memory* mem, BltAddressType src_addr_type,
+static void _block_transfer(HuC6280* cpu, PCEMemory* mem, BltAddressType src_addr_type,
                             BltAddressType dest_addr_type, void (*sync_func)(void*),
                             void* sync_arg) {
     // waste 4 cycles
@@ -429,7 +429,7 @@ static void _block_transfer(CPU* cpu, Memory* mem, BltAddressType src_addr_type,
     STACK_PULL(cpu->y);
 }
 
-void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
+void pce_cpu_reset(HuC6280* cpu, PCEMemory* mem, void (*sync_func)(void*), void* sync_arg) {
     cpu->status.i = true;
     cpu->status.d = false;
     cpu->mpr[7] = 0;
@@ -450,7 +450,7 @@ void cpu_reset(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) 
     cpu->pc = reset_routine_low | (reset_routine_high << 8);
 }
 
-void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
+void pce_cpu_step(HuC6280* cpu, PCEMemory* mem, void (*sync_func)(void*), void* sync_arg) {
     READ(u8 opcode, cpu->pc);
     cpu->pc++;
 
@@ -1540,21 +1540,21 @@ void cpu_step(CPU* cpu, Memory* mem, void (*sync_func)(void*), void* sync_arg) {
         ADDR_IMMEDIATE();
         SYNC();
         SYNC();
-        mem_write(mem, MEMACCESS_CPU, MEM_HUC6270_START + 0, imm8);
+        pce_mem_write(mem, MEM_HUC6270_START + 0, imm8);
         break;
     }
     case 0x13: { // st1
         ADDR_IMMEDIATE();
         SYNC();
         SYNC();
-        mem_write(mem, MEMACCESS_CPU, MEM_HUC6270_START + 2, imm8);
+        pce_mem_write(mem, MEM_HUC6270_START + 2, imm8);
         break;
     }
     case 0x23: { // st2
         ADDR_IMMEDIATE();
         SYNC();
         SYNC();
-        mem_write(mem, MEMACCESS_CPU, MEM_HUC6270_START + 3, imm8);
+        pce_mem_write(mem, MEM_HUC6270_START + 3, imm8);
         break;
     }
 

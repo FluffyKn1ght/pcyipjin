@@ -1,186 +1,244 @@
 #include "pce/vdc.h"
-#include "memory.h"
 #include "pce/vce.h"
-#include <assert.h>
-#include <stdio.h>
+#include "utils/queue.h"
+#include <stdcountof.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define DOTCYCLES_PER_CHARCYCLE 8
+#define CHARCYCLES_PER_LINE                                                                        \
+    ((vdc->_latched_hsw + 1) + (vdc->_latched_hds + 1) + (vdc->_latched_hdw + 1) +                 \
+     (vdc->_latched_hde + 1))
 
-/*
- * TODO LIST:
- * - Correct(ish) memory access width emulation
- * - State machine and timing stuff
- * - Framebuffer output
- * - Emulator callbacks (interrupts, frame done, etc.)
- */
+#define UNDEFINED 0xFFFF
+#define REG04_CONTENT 42069
 
-#define REG_WRITE(addr, reg, mask)                                                                 \
-    case addr: {                                                                                   \
-        reg = ((reg) & (0xFF >> (a0 * 8))) | (value << (a0 * 8));                                  \
-        reg &= (mask);                                                                             \
-        break;                                                                                     \
-    }
+#define WRITE_WORD(dest, half, value)                                                              \
+    dest = ((dest) << (1 - ((half) * 8))) | ((value) << ((half) * 8))
 
-#define VRAM_ADDR_MASK 0x7FFF
-#define CR_MASK 0b1111111111111
-#define RCR_MASK 0b111111111
-#define BXR_MASK 0b111111111
-#define BYR_MASK 0b11111111
-#define MWR_MASK 0b11111111
-#define DCR_MASK 0x1F
-#define HSR_MASK 0b0111111100011111
-#define HDR_MASK 0b0111111101111111
-#define VPR_MASK 0b1111111100011111
-#define VDR_MASK 0x01FF
-#define VCR_MASK 0xFF
+typedef enum : u8 {
+    VRAMCYCLE_NONE = 0, /**< Do nothing */
+    VRAMCYCLE_CPU, /**< Flush/update VRAM access buffer for VWRW register, clearing the BSY status
+                      flag */
+    VRAMCYCLE_BAT, /**< Access Background Attribute Table */
+    VRAMCYCLE_CG0, /**< Access CG0 (bitplanes 0 and 1) */
+    VRAMCYCLE_CG1, /**< Access CG1 (bitplanes 2 and 3) */
+    VRAMCYCLE_CGN, /**< Access CG0 *or* CG1 (only one!), depending on the MWR register's CM
+                      bit */
+} _VDC_VRAMAccessCycle;
 
-#define VBLANK_SCANLINES (vdc->hsr.hsw + 1 + vdc->hsr.hds + 1 + vdc->hdr.hdw + 1 + vdc->hdr.hde + 1)
-#define BLANK_OUT ((VCEInput){.blank = true, .spbg = 1, .color = 0})
+const u16 PCE_VDC_VSCREEN_SIZES[VDC_SCREEN_COUNT][2] = {
+    [VDC_SCREEN_32_32] = {32, 32},   [VDC_SCREEN_64_32] = {64, 32},
+    [VDC_SCREEN_128_32] = {128, 32}, [VDC_SCREEN_128_32_] = {128, 32},
+    [VDC_SCREEN_32_64] = {32, 64},   [VDC_SCREEN_64_64] = {64, 64},
+    [VDC_SCREEN_128_64] = {128, 64}, [VDC_SCREEN_128_64_] = {128, 64}};
 
-const u8 VSCREEN_SIZES[8][2] = {{32, 32}, {64, 32}, {128, 32}, {128, 32},
-                                {32, 64}, {64, 64}, {128, 64}, {128, 64}};
+// first element is amount of dot cycles per access, other elements are _VDC_VRAMAccessCycle entries
+static const _VDC_VRAMAccessCycle VRAM_ACCESS_CYCLES[4][9] = {
+    [VDC_VM_1] = {1, VRAMCYCLE_CPU, VRAMCYCLE_BAT, VRAMCYCLE_CPU, VRAMCYCLE_NONE, VRAMCYCLE_CPU,
+                  VRAMCYCLE_CG0, VRAMCYCLE_CPU, VRAMCYCLE_CG1},
+    [VDC_VM_2A] = {2, VRAMCYCLE_BAT, VRAMCYCLE_CPU, VRAMCYCLE_BAT, VRAMCYCLE_CPU},
+    [VDC_VM_2B] = {2, VRAMCYCLE_BAT, VRAMCYCLE_CPU, VRAMCYCLE_BAT, VRAMCYCLE_CPU},
+    [VDC_VM_4] = {4, VRAMCYCLE_BAT, VRAMCYCLE_CGN}};
 
-const bool VRAM_CPU_READ[4][8] = {{1, 0, 1, 0, 1, 0, 1, 0},
-                                  {0, 0, 1, 1, 0, 0, 0, 0},
-                                  {0, 0, 1, 1, 0, 0, 0, 0},
-                                  {0, 0, 0, 0, 0, 0, 0, 0}};
+static inline u16 _get_bat_addr_for_pixel(HuC6270* vdc, u16 x, u16 y) {
+    u16 coarse_x = x / 8;
+    u16 coarse_y = y / 8;
 
-static VCEInput _vdc_render(VDC* vdc) {
-    vdc->status.bits.busy = VRAM_CPU_READ[vdc->_vram_access][8 - vdc->dotcycle_count];
+    coarse_x %= vdc->_latched_vscr_width;
+    coarse_y %= vdc->_latched_vscr_height;
 
-    bool cg_reduced_depth = vdc->_vram_access == VDC_VM4_BAT_CG01;
-
-    return (VCEInput){};
+    return coarse_x + coarse_y * vdc->_latched_vscr_width;
 }
 
-static VCEInput _vdc_step(VDC* vdc) {
-    // whatever deity there is, may you forgive me for my sins...
-    // - fluffykn1ght
+static void _vdc_access_memory(HuC6270* vdc) {
+    _VDC_VRAMAccessCycle cur_vram_cycle =
+        VRAM_ACCESS_CYCLES[vdc->_latched_vm]
+                          [vdc->_vram_access_dotcycles % VRAM_ACCESS_CYCLES[vdc->_latched_vm][0]];
 
-    if (vdc->state == VDC_STATE_FRAMESTART) {
-        vdc->state = VDC_STATE_VBLANK;
-        vdc->scanline_count = vdc->vpr.vsw + 1 + vdc->vcr + 1 + vdc->vpr.vds + 2;
+    vdc->_vram_access_dotcycles++;
+    vdc->_vram_access_dotcycles %= 8 / VRAM_ACCESS_CYCLES[vdc->_latched_vm][0];
+
+    switch (cur_vram_cycle) {
+    case VRAMCYCLE_NONE: {
+        break;
     }
+    case VRAMCYCLE_CPU: {
+        if (vdc->sr.bsy) {
+            vdc->sr.bsy = false;
 
-    if (vdc->state == VDC_STATE_BURST) {
-        if (vdc->charcycle_count <= 0) {
-            vdc->scanline_count--;
-            vdc->charcycle_count = VBLANK_SCANLINES;
-        }
-
-        if (vdc->scanline_count <= 0) {
-            vdc->state = VDC_STATE_FRAMESTART;
-        }
-        return BLANK_OUT;
-    }
-
-    if (vdc->state == VDC_STATE_VBLANK) {
-        if (vdc->charcycle_count <= 0) {
-            vdc->scanline_count--;
-            vdc->charcycle_count = VBLANK_SCANLINES;
-        }
-
-        if (vdc->scanline_count <= 0) {
-            if (!vdc->_render_sprites && !vdc->_render_bg) {
-                // fblank joined the chat
-                vdc->state = VDC_STATE_BURST;
-                vdc->scanline_count = vdc->vdw + 1;
+            if (vdc->vram_access_is_write) {
+                vdc->vram[vdc->mawr] = vdc->vram_write_buf;
             } else {
-                vdc->_horiz_charcycles = vdc->hdr.hdw + 1;
-                vdc->_vert_charcycles = 0;
-                vdc->_vscreen_size_x = VSCREEN_SIZES[vdc->mwr.screen][0];
-                vdc->_vscreen_size_y = VSCREEN_SIZES[vdc->mwr.screen][1];
-                vdc->_sprite_access = vdc->mwr.sm;
-                vdc->_vram_access = vdc->mwr.vm;
-
-                vdc->state = VDC_STATE_HSYNC;
-                vdc->charcycle_count = vdc->hsr.hsw + 1;
-                vdc->scanline_count = vdc->vdw + 1;
+                vdc->vram_read_buf = vdc->vram[vdc->marr];
             }
-        }
-
-        return BLANK_OUT;
-    }
-
-    switch (vdc->state) {
-    case VDC_STATE_HSYNC: {
-        if (vdc->charcycle_count <= 0) {
-            vdc->state = VDC_STATE_HBLANK_BEFORE;
-            vdc->charcycle_count = vdc->hsr.hds + 1;
-
-            vdc->_render_sprites = vdc->cr.sb;
-            vdc->_render_bg = vdc->cr.bb;
-            vdc->_bgscroll_x = vdc->bxr;
-            vdc->_bgscroll_y = vdc->byr;
-            vdc->_use_alt_cg = vdc->mwr.cg_mode;
         }
         break;
     }
-    case VDC_STATE_HBLANK_BEFORE: {
-        if (vdc->charcycle_count <= 0) {
-            vdc->state = VDC_STATE_RENDER;
-            vdc->charcycle_count = vdc->hdr.hdw + 1;
-        }
+    case VRAMCYCLE_BAT: {
+        vdc->_temp_bat.word = vdc->vram[_get_bat_addr_for_pixel(vdc, vdc->_latched_bgx + vdc->pixel,
+                                                                vdc->_latched_bgy + vdc->scanline)];
         break;
     }
-    case VDC_STATE_RENDER: {
-        if (vdc->charcycle_count <= 0) {
-            vdc->state = VDC_STATE_HBLANK_AFTER;
-            vdc->charcycle_count = vdc->hdr.hde + 1;
-            break;
-        }
-        return _vdc_render(vdc);
+    case VRAMCYCLE_CG0: {
+        vdc->_temp_cg[0] = vdc->vram[vdc->_temp_bat.charcode << 4];
+        break;
     }
-    case VDC_STATE_HBLANK_AFTER: {
-        if (vdc->charcycle_count <= 0) {
-            vdc->charcycle_count = vdc->hsr.hsw + 1;
-            vdc->scanline_count--;
+    case VRAMCYCLE_CG1: {
+        vdc->_temp_cg[1] = vdc->vram[(vdc->_temp_bat.charcode + 1) << 4];
+        break;
+    }
+    case VRAMCYCLE_CGN: {
+        vdc->_temp_cg[vdc->_latched_cm] =
+            vdc->vram[(vdc->_temp_bat.charcode + vdc->_latched_cm) << 4];
+        break;
+    }
+    }
+}
 
-            if (vdc->scanline_count > 0) {
-                vdc->state = VDC_STATE_HSYNC;
-            } else {
-                vdc->state = VDC_STATE_FRAMESTART;
-            }
+static void _vdc_fifo_renderpx(HuC6270* vdc) {
+    u8 ch0 = vdc->_temp_cg[0] & 0xFF;
+    u8 ch1 = (vdc->_temp_cg[0] & 0xFF00) >> 8;
+    u8 ch2 = vdc->_temp_cg[1] & 0xFF;
+    u8 ch3 = (vdc->_temp_cg[1] & 0xFF00) >> 8;
+
+    u8 bg_out = ch0 | (ch1 << 1) | (ch2 << 2) | (ch3 << 3) | (vdc->_temp_bat.cgcolor << 4);
+
+    // TODO: Sprites!!!
+
+    PCE_VDCOutput vdc_out = (PCE_VDCOutput){.bg = bg_out};
+
+    queue_enqueue(vdc->_pixel_fifo, &vdc_out);
+}
+
+static u16 _vdc_read_reg(HuC6270* vdc) {
+    if (vdc->ar == VDC_REG_VWRW) {
+        return vdc->vram_read_buf;
+    }
+
+    return UNDEFINED;
+}
+
+static void _vdc_write_reg(HuC6270* vdc, u8 a0, u16 value) {
+    switch (vdc->ar) {
+    case VDC_REG_MAWR: {
+        WRITE_WORD(vdc->mawr, a0, value);
+        break;
+    }
+    case VDC_REG_MARR: {
+        if (a0) {
+            vdc->vram_access_is_write = false;
+            vdc->sr.bsy = true;
         }
+
+        WRITE_WORD(vdc->marr, a0, value);
+        break;
+    }
+    case VDC_REG_VWRW: {
+        if (a0) {
+            vdc->vram_access_is_write = true;
+            vdc->sr.bsy = true;
+        }
+        WRITE_WORD(vdc->vram_write_buf, a0, value);
+        break;
+    }
+    case VDC_REG_UNK03:
+    case VDC_REG_UNK04: {
+        break;
+    }
+    case VDC_REG_CR: {
+        WRITE_WORD(vdc->cr.word, a0, value);
+        break;
+    }
+    case VDC_REG_RCR: {
+        WRITE_WORD(vdc->rcr, a0, value);
+        break;
+    }
+    case VDC_REG_BXR: {
+        WRITE_WORD(vdc->bxr, a0, value);
+        break;
+    }
+    case VDC_REG_BYR: {
+        WRITE_WORD(vdc->byr, a0, value);
+        break;
+    }
+    case VDC_REG_MWR: {
+        WRITE_WORD(vdc->rcr, a0, value);
+        break;
+    }
+    case VDC_REG_HSR: {
+        WRITE_WORD(vdc->hsr.word, a0, value);
+        break;
+    }
+    case VDC_REG_HDR: {
+        WRITE_WORD(vdc->hdr.word, a0, value);
+        break;
+    }
+    case VDC_REG_VPR: {
+        WRITE_WORD(vdc->vpr.word, a0, value);
+        break;
+    }
+    case VDC_REG_VDW: {
+        WRITE_WORD(vdc->vdw.word, a0, value);
+        break;
+    }
+    case VDC_REG_VCR: {
+        WRITE_WORD(vdc->vcr.word, a0, value);
+        break;
+    }
+    case VDC_REG_DCR: {
+        WRITE_WORD(vdc->dcr.word, a0, value);
+        break;
+    }
+    case VDC_REG_SOUR: {
+        WRITE_WORD(vdc->sour, a0, value);
+        break;
+    }
+    case VDC_REG_DESR: {
+        WRITE_WORD(vdc->desr, a0, value);
+        break;
+    }
+    case VDC_REG_LENR: {
+        WRITE_WORD(vdc->lenr, a0, value);
+        break;
+    }
+    case VDC_REG_DVSSR: {
+        WRITE_WORD(vdc->dvssr, a0, value);
         break;
     }
     default: {
-        printf(FILEPOS "unknown vdc state %u\n", vdc->state);
-        assert(false);
         break;
     }
     }
-
-    return (VCEInput){.blank = true, .spbg = 1, .color = 0};
 }
 
-VDC* vdc_create() {
-    VDC* vdc = calloc(1, sizeof(VDC));
+HuC6270* pce_vdc_create() {
+    HuC6270* vdc = malloc(sizeof(HuC6270));
 
-    vdc->vram = malloc(sizeof(VDC_VRAM));
-    vdc->satb = malloc(sizeof(VDC_SATB));
+    vdc->vram = calloc(32 * 1024, sizeof(u16));
+    vdc->satb = calloc(64, sizeof(PCE_VDCSprite));
 
-    vdc->bg_visible = true;
-    vdc->sprites_visible = true;
+    vdc->_pixel_fifo = queue_create(sizeof(PCE_VDCOutput));
+    queue_grow(vdc->_pixel_fifo, VCE_MAX_X_SCREEN_SIZE);
+
+    pce_vdc_reset(vdc);
 
     return vdc;
 }
 
-void vdc_destroy(VDC* vdc) {
-    free(vdc->satb);
+void pce_vdc_destroy(HuC6270* vdc) {
     free(vdc->vram);
+    free(vdc->satb);
+    queue_free(vdc->_pixel_fifo);
     free(vdc);
 }
 
-void vdc_reset(VDC* vdc) {
-    vdc->reg = 0;
-    vdc->status.byte = 0;
+void pce_vdc_reset(HuC6270* vdc) {
+    // TODO: randomize uninitialized memory?
+    memset(vdc->vram, 0, sizeof(u16) * 32 * 1024);
+    memset(vdc->satb, 0, sizeof(PCE_VDCSprite) * 64);
 
-    memset(vdc->vram, 0xFF, sizeof(VDC_VRAM));
-    memset(vdc->satb, 0xFF, sizeof(VDC_SATB));
-
+    vdc->ar = 0;
+    vdc->sr.word = 0;
     vdc->mawr = 0;
     vdc->marr = 0;
     vdc->cr.word = 0;
@@ -188,130 +246,204 @@ void vdc_reset(VDC* vdc) {
     vdc->bxr = 0;
     vdc->byr = 0;
     vdc->mwr.word = 0;
+    vdc->hsr.word = 0;
+    vdc->hdr.word = 0;
+    vdc->vpr.word = 0;
+    vdc->vdw.word = 0;
+    vdc->vcr.word = 0;
     vdc->dcr.word = 0;
     vdc->sour = 0;
     vdc->desr = 0;
     vdc->lenr = 0;
     vdc->dvssr = 0;
-    vdc->hsr.word = 0;
-    vdc->hdr.word = 0;
-    vdc->vpr.word = 0;
-    vdc->vdw = 0;
-    vdc->vcr = 0;
 
-    vdc->vram_dma_state = VDC_DMA_IDLE;
-    vdc->satb_dma_state = VDC_DMA_IDLE;
+    vdc->vram_dma = false;
+    vdc->satb_dma = VDC_SATBDMA_IDLE;
 
     vdc->irq1 = false;
 
-    vdc->_bgscroll_x = 0;
-    vdc->_bgscroll_y = 0;
-    vdc->_vscreen_size_x = 0;
-    vdc->_vscreen_size_y = 0;
-    vdc->_render_sprites = false;
-    vdc->_render_bg = false;
-    vdc->_use_alt_cg = false;
-
-    vdc->_horiz_charcycles = 0;
-    vdc->_vert_charcycles = 0;
-
-    vdc->state = VDC_STATE_FRAMESTART;
+    vdc->state = VDC_STATE_BURST;
     vdc->charcycle_count = 0;
     vdc->dotcycle_count = 0;
+    vdc->_vram_access_dotcycles = 0;
+
+    vdc->scanline = 0;
+    vdc->pixel = 0;
+
+    vdc->_temp_bat = (PCE_VDC_BGAttrTableEntry){};
+    vdc->_temp_cg[0] = 0;
+    vdc->_temp_cg[1] = 0;
+
+    queue_clear(vdc->_pixel_fifo);
+
+    vdc->_latched_vm = vdc->mwr.vm;
+    vdc->_latched_sm = vdc->mwr.sm;
+    vdc->_latched_screen = vdc->mwr.screen;
+    vdc->_latched_vscr_width = PCE_VDC_VSCREEN_SIZES[vdc->_latched_screen][0];
+    vdc->_latched_vscr_height = PCE_VDC_VSCREEN_SIZES[vdc->_latched_screen][1];
+    vdc->_latched_hsw = vdc->hsr.hsw;
+    vdc->_latched_hds = vdc->hsr.hds;
+    vdc->_latched_hdw = vdc->hdr.hdw;
+    vdc->_latched_hde = vdc->hdr.hde;
+    vdc->_latched_vsw = vdc->vpr.vsw;
+    vdc->_latched_vds = vdc->vpr.vds;
+    vdc->_latched_vdw = vdc->vdw.vdw;
+    vdc->_latched_vcr = vdc->vcr.vcr;
+
+    vdc->_latched_bb = vdc->cr.bb;
+    vdc->_latched_bb = vdc->cr.sb;
+    vdc->_latched_bgx = vdc->bxr;
+    vdc->_latched_bgy = vdc->byr;
+    vdc->_latched_cm = vdc->mwr.cm;
 }
 
-u8 vdc_read(void* vdcptr, MemoryAccess access, u16 addr) {
-    VDC* vdc = (VDC*)vdcptr;
-
-    u16 internal_addr = (addr - MEM_HUC6270_START) & 0x3;
-
-    u8 a0 = internal_addr & 0x1;
-    u8 a1 = internal_addr & 0x2;
-
-    if (a1 == 0) {
-        if (a0 == 1) {
-            return 0;
-        } else {
-            return vdc->status.byte;
-        }
-        vdc->irq1 = false;
-    } else {
-        if (vdc->reg == VDC_REG_VWR_VRR) {
-            // TODO
-            return MEM_UNDEFINED;
-        } else {
-            return MEM_UNDEFINED;
-        }
-    }
-
-    return MEM_UNDEFINED;
-}
-
-void vdc_write(void* vdcptr, MemoryAccess access, u16 addr, u8 value) {
-    VDC* vdc = (VDC*)vdcptr;
-
-    u16 internal_addr = (addr - MEM_HUC6270_START) & 0x3;
-
-    u8 a0 = internal_addr & 0x1;
-    u8 a1 = internal_addr & 0x2;
-
-    if (a1 == 0) {
-        if (a0 == 0) {
-            vdc->reg = value & 0x1F;
-        }
-    } else {
-        switch (vdc->reg) {
-            REG_WRITE(VDC_REG_MAWR, vdc->mawr, VRAM_ADDR_MASK);
-            REG_WRITE(VDC_REG_MARR, vdc->marr, VRAM_ADDR_MASK);
-        case VDC_REG_VWR_VRR: {
-            // TODO: write vram and bump mawr
-            break;
-        }
-            REG_WRITE(VDC_REG_CR, vdc->cr.word, CR_MASK);
-            REG_WRITE(VDC_REG_RCR, vdc->rcr, RCR_MASK);
-            REG_WRITE(VDC_REG_BXR, vdc->bxr, BXR_MASK);
-            REG_WRITE(VDC_REG_BYR, vdc->byr, BYR_MASK);
-            REG_WRITE(VDC_REG_MWR, vdc->mwr.word, MWR_MASK);
-            REG_WRITE(VDC_REG_DCR, vdc->dcr.word, DCR_MASK);
-            REG_WRITE(VDC_REG_SOUR, vdc->sour, VRAM_ADDR_MASK);
-            REG_WRITE(VDC_REG_DESR, vdc->desr, VRAM_ADDR_MASK);
-            REG_WRITE(VDC_REG_HSR, vdc->hsr.word, HSR_MASK);
-            REG_WRITE(VDC_REG_HDR, vdc->hdr.word, HDR_MASK);
-            REG_WRITE(VDC_REG_VPR, vdc->vpr.word, VPR_MASK);
-            REG_WRITE(VDC_REG_VDR, vdc->vdw, VDR_MASK);
-            REG_WRITE(VDC_REG_VCR, vdc->vcr, VCR_MASK);
-
-        case VDC_REG_LENR: {
-            vdc->lenr = (vdc->lenr & (0xFF >> (a0 * 8))) | (value << (a0 * 8));
-            if (a0 == 1) {
-                vdc->vram_dma_state = VDC_DMA_ARMED;
-            }
-
-            break;
-        }
-
-        case VDC_REG_DVSSR: {
-            vdc->dvssr = (vdc->dvssr & (0xFF >> (a0 * 8))) | (value << (a0 * 8));
-            if (a0 == 1) {
-                vdc->satb_dma_state = VDC_DMA_ARMED;
-            }
-
-            break;
-        }
-        }
-    }
-}
-
-VCEInput vdc_tick(void* vdcptr) {
-    VDC* vdc = (VDC*)vdcptr;
-
-    VCEInput out = _vdc_step(vdc);
+PCE_VDCOutput pce_vdc_step(HuC6270* vdc) {
+    // TODO: DMA (VRAM and SATB)
+    // TODO: Interrupts
 
     vdc->dotcycle_count--;
+
     if (vdc->dotcycle_count <= 0) {
+        vdc->dotcycle_count = 8;
         vdc->charcycle_count--;
-        vdc->dotcycle_count = DOTCYCLES_PER_CHARCYCLE;
+        _vdc_fifo_renderpx(vdc);
     }
 
-    return out;
+    if (vdc->state == VDC_STATE_HBLANK_HDS_PRIME || vdc->state == VDC_STATE_RENDER) {
+        _vdc_access_memory(vdc);
+    }
+
+    if (vdc->charcycle_count <= 0) {
+        PCE_VDCState prev_state = vdc->state++;
+
+        if (vdc->state >= VDC_STATE_COUNT) {
+            vdc->state = 0;
+        }
+
+        if (vdc->state == VDC_STATE_VBLANK_VCR && vdc->scanline < vdc->_latched_vdw) {
+            vdc->state = VDC_STATE_HSYNC;
+        }
+
+        if (prev_state == VDC_STATE_VBLANK_VDS && vdc->state == VDC_STATE_HSYNC && !vdc->cr.bb &&
+            !vdc->cr.sb) {
+            vdc->state = VDC_STATE_BURST;
+        }
+
+        if (prev_state == VDC_STATE_BURST && vdc->state == VDC_STATE_VBLANK_VDS) {
+            vdc->state = VDC_STATE_VSYNC;
+        }
+
+        switch (vdc->state) {
+        case VDC_STATE_BURST: {
+            vdc->charcycle_count =
+                ((vdc->_latched_vds + 2) + (vdc->_latched_vdw + 1) + vdc->_latched_vcr) *
+                CHARCYCLES_PER_LINE;
+            break;
+        }
+        case VDC_STATE_VBLANK_VDS: {
+            vdc->charcycle_count = (vdc->_latched_vds + 2) * CHARCYCLES_PER_LINE;
+            break;
+        }
+        case VDC_STATE_HSYNC: {
+            if (prev_state == VDC_STATE_VBLANK_VDS) {
+                vdc->_latched_vm = vdc->mwr.vm;
+                vdc->_latched_sm = vdc->mwr.sm;
+                vdc->_latched_screen = vdc->mwr.screen;
+                vdc->_latched_vscr_width = PCE_VDC_VSCREEN_SIZES[vdc->_latched_screen][0];
+                vdc->_latched_vscr_height = PCE_VDC_VSCREEN_SIZES[vdc->_latched_screen][1];
+                vdc->_latched_hsw = vdc->hsr.hsw;
+                vdc->_latched_hds = vdc->hsr.hds;
+                vdc->_latched_hdw = vdc->hdr.hdw;
+                vdc->_latched_hde = vdc->hdr.hde;
+                vdc->_latched_vsw = vdc->vpr.vsw;
+                vdc->_latched_vds = vdc->vpr.vds;
+                vdc->_latched_vdw = vdc->vdw.vdw;
+                vdc->_latched_vcr = vdc->vcr.vcr;
+            }
+
+            if (prev_state != VDC_STATE_HSYNC) {
+                vdc->_latched_bb = vdc->cr.bb;
+                vdc->_latched_bb = vdc->cr.sb;
+                vdc->_latched_bgx = vdc->bxr;
+                vdc->_latched_bgy = vdc->byr;
+                vdc->_latched_cm = vdc->mwr.cm;
+
+                vdc->scanline++;
+            }
+
+            vdc->charcycle_count = vdc->_latched_hsw + 1;
+            break;
+        }
+        case VDC_STATE_HBLANK_HDS: {
+            vdc->charcycle_count = vdc->_latched_hds - (VDC_PREFETCH_TILE_COUNT - 1);
+            break;
+        }
+        case VDC_STATE_HBLANK_HDS_PRIME: {
+            queue_clear(vdc->_pixel_fifo);
+            vdc->pixel = 0;
+            vdc->charcycle_count = 2;
+            break;
+        }
+        case VDC_STATE_RENDER: {
+            for (int _i = 0; _i < 8 - (vdc->_latched_bgx % 8); _i++) {
+                queue_dequeue(vdc->_pixel_fifo, NULL);
+            }
+
+            vdc->charcycle_count = vdc->_latched_hdw + 1;
+            break;
+        }
+        case VDC_STATE_HBLANK_HDE: {
+            vdc->charcycle_count = vdc->_latched_hde + 1;
+            break;
+        }
+        case VDC_STATE_VBLANK_VCR: {
+            vdc->charcycle_count = vdc->_latched_vcr * CHARCYCLES_PER_LINE;
+            break;
+        }
+        case VDC_STATE_VSYNC: {
+            vdc->charcycle_count = (vdc->_latched_vsw + 1) * CHARCYCLES_PER_LINE;
+            break;
+        }
+        }
+    }
+
+    bool hsync = vdc->state == VDC_STATE_HSYNC || vdc->state == VDC_STATE_HBLANK_HDS ||
+                 vdc->state == VDC_STATE_HBLANK_HDE;
+    bool vsync = vdc->state = VDC_STATE_VSYNC || vdc->state == VDC_STATE_VBLANK_VDS ||
+                              vdc->state == VDC_STATE_VBLANK_VCR || vdc->state == VDC_STATE_BURST;
+
+    if (vdc->state == VDC_STATE_RENDER) {
+        PCE_VDCOutput out = {};
+        queue_dequeue(vdc->_pixel_fifo, &out);
+        return out;
+    } else {
+        return (PCE_VDCOutput){.spbg = true, .bg = 0, .spr = 0, .vsync = vsync, .hsync = hsync};
+    }
+}
+
+u8 pce_vdc_read(HuC6270* vdc, u8 addr) {
+    u8 reg_no = (addr >> 1) % 2;
+    u8 reg_half = addr & 1;
+
+    if (reg_no) {
+        return _vdc_read_reg(vdc) >> (reg_half * 8);
+    } else {
+        vdc->sr.cr = false;
+        vdc->sr.or = false;
+        vdc->sr.rr = false;
+        vdc->sr.ds = false;
+        vdc->sr.dv = false;
+        vdc->sr.vd = false;
+
+        return vdc->sr.word >> (reg_half * 8);
+    }
+}
+
+void pce_vdc_write(HuC6270* vdc, u8 addr, u8 value) {
+    u8 reg_no = (addr >> 1) % 2;
+    u8 reg_half = addr & 1;
+
+    if (reg_no) {
+        _vdc_write_reg(vdc, reg_half, value);
+    }
 }
