@@ -8,6 +8,7 @@
 
 #include "utils/queue.h"
 #define VDC_PREFETCH_TILE_COUNT 2
+#define VDC_SPRITE_COUNT 64
 
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error Unsupported byte order
@@ -46,10 +47,11 @@ typedef enum : u8 {
  * @brief Represents different values of the IW register on the HuC6270 VDC
  */
 typedef enum : u8 {
-    VDC_IW_0X1 = 0x1,
-    VDC_IW_0X20 = 0x20,
-    VDC_IW_0X40 = 0x40,
-    VDC_IW_0X80 = 0x80
+    VDC_IW_0X1,
+    VDC_IW_0X20,
+    VDC_IW_0X40,
+    VDC_IW_0X80,
+    VDC_IW_COUNT,
 } PCE_VDCAddrIncrement;
 
 /**
@@ -60,6 +62,7 @@ typedef enum : u8 {
     VDC_VM_2A, /**< 4 accesses, BAT CPU CG0 CG1 */
     VDC_VM_2B, /**< 4 accesses, BAT CPU CG0 CG1 */
     VDC_VM_4,  /**< 2 accesses, only 1 bitplane, BAT CG0/CG1 */
+    VDC_VM_COUNT
 } PCE_VDC_VRAMAccessWidth;
 
 /**
@@ -69,8 +72,9 @@ typedef enum : u8 {
     VDC_SM_1,     /**< 8 accesses, SP0 SP1 SP2 SP3 SP0 SP1 SP2 SP3 */
     VDC_SM_2_LSB, /**< LSB of pattern code selects (SP0, SP1) or (SP2, SP3), 4 accesses, SP0/SP2
                      SP1/SP3 SP0/SP2 SP1/SP3 */
-    VDC_SM_2,     /**< SP0 SP1 SP0 SP1 */
+    VDC_SM_2,     /**< 4 accesses, SP0 SP1 SP2 SP3 */
     VDC_SM_4,     /**< 2 consecutive character cycles, SP0 SP1 | SP2 SP3 */
+    VDC_SM_COUNT,
 } PCE_VDCSpriteAccessWidth;
 
 /**
@@ -128,7 +132,13 @@ typedef enum : s8 {
 /**
  * @brief Represents different sprite CGY settings on the HuC6270 VDC
  */
-typedef enum : u8 { VDC_CGY_OFF, VDC_CGY_2CGY, VDC_CGY_INVALID, VDC_CGY_4CGY } VDCSpriteCGY;
+typedef enum : u8 {
+    VDC_CGY_OFF,
+    VDC_CGY_2CGY,
+    VDC_CGY_INVALID,
+    VDC_CGY_4CGY,
+    VDC_CGY_COUNT
+} PCE_VDCSpriteCGY;
 
 /**
  * @brief Represents a Sprite Attribute Table (SAT) entry on the HuC6270 VDC
@@ -143,11 +153,35 @@ typedef struct {
     bool spbg : 1; /**< Sprite/background priority */
     bool cgx : 1;  /**< Consecutive X display */
     u8 _pad2 : 2;
-    bool xflip : 1;       /**< Mirror sprite(s) on X axis */
-    VDCSpriteCGY cgy : 2; /**< Consecutive Y display */
+    bool xflip : 1;           /**< Mirror sprite(s) on X axis */
+    PCE_VDCSpriteCGY cgy : 2; /**< Consecutive Y display */
     u8 _pad3 : 1;
     bool yflip : 1; /**< Mirror sprite(s) on Y axis */
 } PCE_VDCSprite;
+
+/**
+ * @brief Represents internal per-line sprite data on the VDC
+ *
+ * @note This is for internal VDC use only
+ */
+typedef struct {
+    u16 xpos : 10;
+    u16 ypos : 10;
+    u8 spr_color : 4;
+    bool spbg : 1;
+    bool xflip : 1;
+    bool yflip : 1;
+
+    bool populated : 1;
+    bool is_sprite_0 : 1;
+    u8 bitplanes_loaded : 2;
+    PCE_VDCSpriteCGY cgy : 2;
+
+    u16 pattern : 10;
+    bool sg_sel : 1;
+
+    u16 bitplanes[4];
+} PCE_VDCInternalSprite;
 
 /**
  * @brief Represents a Background Attribute Table (BAT) entry on the HuC6270 VDC
@@ -178,7 +212,7 @@ typedef struct {
  */
 typedef struct {
     PCE_VDCSprite* satb; /**< Sprite Attribute Table Buffer (SATB). This should point to a
-                           VDCSprite[64]. */
+                           PCE_VDCSprite[VDC_SPRITE_COUNT]. */
     u16* vram;           /**< Video RAM (VRAM). This should point to a 32K word (64KB) buffer */
 
     PCE_VDCRegister ar : 5; /** Address Register */
@@ -300,14 +334,18 @@ typedef struct {
     PCE_VDCState state;  /**< Current VDC state */
     s16 charcycle_count; /**< Character cycle counter */
     s16 dotcycle_count;  /**< Dotcycle counter */
-    s8 _vram_access_dotcycles;
 
     u16 scanline : 9; /**< Current scanline */
     u16 pixel : 11;   /**< Current pixel */
 
+    s8 _cg_access_dotcycles;
+    s8 _sg_access_dotcycles;
     PCE_VDC_BGAttrTableEntry _temp_bat;
     u16 _temp_cg[2];
-
+    PCE_VDCInternalSprite _line_sprites[16];
+    u8 _sprite_eval_done;
+    u8 _sprite_sgload_progress;
+    bool _sm_mode4_current_sg;
     Queue* _pixel_fifo;
 
     // Relatched every VBlank

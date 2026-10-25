@@ -12,6 +12,11 @@
 #define UNDEFINED 0xFFFF
 #define REG04_CONTENT 42069
 
+#define VISIBLE_TOPLEFT_X 32
+#define VISIBLE_TOPLEFT_Y 64
+
+#define VRAM_MASK 0b0111111111111111
+
 #define WRITE_WORD(dest, half, value)                                                              \
     dest = ((dest) << (1 - ((half) * 8))) | ((value) << ((half) * 8))
 
@@ -33,12 +38,18 @@ const u16 PCE_VDC_VSCREEN_SIZES[VDC_SCREEN_COUNT][2] = {
     [VDC_SCREEN_128_64] = {128, 64}, [VDC_SCREEN_128_64_] = {128, 64}};
 
 // first element is amount of dot cycles per access, other elements are _VDC_VRAMAccessCycle entries
-static const _VDC_VRAMAccessCycle VRAM_ACCESS_CYCLES[4][9] = {
+static const _VDC_VRAMAccessCycle VRAM_ACCESS_CYCLES[VDC_VM_COUNT][9] = {
     [VDC_VM_1] = {1, VRAMCYCLE_CPU, VRAMCYCLE_BAT, VRAMCYCLE_CPU, VRAMCYCLE_NONE, VRAMCYCLE_CPU,
                   VRAMCYCLE_CG0, VRAMCYCLE_CPU, VRAMCYCLE_CG1},
     [VDC_VM_2A] = {2, VRAMCYCLE_BAT, VRAMCYCLE_CPU, VRAMCYCLE_BAT, VRAMCYCLE_CPU},
     [VDC_VM_2B] = {2, VRAMCYCLE_BAT, VRAMCYCLE_CPU, VRAMCYCLE_BAT, VRAMCYCLE_CPU},
     [VDC_VM_4] = {4, VRAMCYCLE_BAT, VRAMCYCLE_CGN}};
+
+static const u8 SPRITE_CGY_HEIGHTS[VDC_CGY_COUNT] = {
+    [VDC_CGY_OFF] = 16, [VDC_CGY_2CGY] = 32, [VDC_CGY_INVALID] = 16, [VDC_CGY_4CGY] = 64};
+
+static const u8 SG_ACCESS_WIDTHS[VDC_SM_COUNT] = {
+    [VDC_SM_1] = 1, [VDC_SM_2] = 2, [VDC_SM_2_LSB] = 2, [VDC_SM_4] = 4};
 
 static inline u16 _get_bat_addr_for_pixel(HuC6270* vdc, u16 x, u16 y) {
     u16 coarse_x = x / 8;
@@ -50,13 +61,15 @@ static inline u16 _get_bat_addr_for_pixel(HuC6270* vdc, u16 x, u16 y) {
     return coarse_x + coarse_y * vdc->_latched_vscr_width;
 }
 
-static void _vdc_access_memory(HuC6270* vdc) {
+static inline u8 _get_bit(u16 byte, u8 bit) { return (byte & (0x1 << bit)) >> bit; }
+
+static void _vdc_access_vram_cg(HuC6270* vdc) {
     _VDC_VRAMAccessCycle cur_vram_cycle =
         VRAM_ACCESS_CYCLES[vdc->_latched_vm]
-                          [vdc->_vram_access_dotcycles % VRAM_ACCESS_CYCLES[vdc->_latched_vm][0]];
+                          [vdc->_cg_access_dotcycles % VRAM_ACCESS_CYCLES[vdc->_latched_vm][0]];
 
-    vdc->_vram_access_dotcycles++;
-    vdc->_vram_access_dotcycles %= 8 / VRAM_ACCESS_CYCLES[vdc->_latched_vm][0];
+    vdc->_cg_access_dotcycles++;
+    vdc->_cg_access_dotcycles %= 8 / VRAM_ACCESS_CYCLES[vdc->_latched_vm][0];
 
     switch (cur_vram_cycle) {
     case VRAMCYCLE_NONE: {
@@ -67,53 +80,187 @@ static void _vdc_access_memory(HuC6270* vdc) {
             vdc->sr.bsy = false;
 
             if (vdc->vram_access_is_write) {
-                vdc->vram[vdc->mawr] = vdc->vram_write_buf;
+                vdc->vram[vdc->mawr & VRAM_MASK] = vdc->vram_write_buf;
             } else {
-                vdc->vram_read_buf = vdc->vram[vdc->marr];
+                vdc->vram_read_buf = vdc->vram[vdc->marr & VRAM_MASK];
             }
         }
         break;
     }
     case VRAMCYCLE_BAT: {
         vdc->_temp_bat.word = vdc->vram[_get_bat_addr_for_pixel(vdc, vdc->_latched_bgx + vdc->pixel,
-                                                                vdc->_latched_bgy + vdc->scanline)];
+                                                                vdc->_latched_bgy + vdc->scanline) &
+                                        VRAM_MASK];
         break;
     }
     case VRAMCYCLE_CG0: {
         vdc->_temp_cg[0] =
-            vdc->vram[(vdc->_temp_bat.charcode << 4) + ((vdc->_latched_bgy + vdc->scanline) % 8)];
+            vdc->vram[((vdc->_temp_bat.charcode << 4) + ((vdc->_latched_bgy + vdc->scanline) % 8)) &
+                      VRAM_MASK];
         break;
     }
     case VRAMCYCLE_CG1: {
-        vdc->_temp_cg[1] = vdc->vram[((vdc->_temp_bat.charcode + 1) << 4) +
-                                     ((vdc->_latched_bgy + vdc->scanline) % 8)];
+        vdc->_temp_cg[1] = vdc->vram[(((vdc->_temp_bat.charcode + 1) << 4) +
+                                      ((vdc->_latched_bgy + vdc->scanline) % 8)) &
+                                     VRAM_MASK];
         break;
     }
     case VRAMCYCLE_CGN: {
         vdc->_temp_cg[vdc->_latched_cm] =
-            vdc->vram[((vdc->_temp_bat.charcode + vdc->_latched_cm) << 4) +
-                      ((vdc->_latched_bgy + vdc->scanline) % 8)];
+            vdc->vram[(((vdc->_temp_bat.charcode + vdc->_latched_cm) << 4) +
+                       ((vdc->_latched_bgy + vdc->scanline) % 8)) &
+                      VRAM_MASK];
         break;
     }
     }
 }
 
-static void _vdc_fifo_renderpx(HuC6270* vdc) {
+static void _vdc_access_vram_sg(HuC6270* vdc) {
+    PCE_VDCInternalSprite* ispr = vdc->_line_sprites + vdc->_sprite_sgload_progress;
+
+    if (!ispr->populated) {
+        return;
+    }
+
+    if (ispr->bitplanes_loaded >= 4) {
+        vdc->_sprite_sgload_progress++;
+        _vdc_access_vram_sg(vdc);
+        return;
+    }
+
+    vdc->_sg_access_dotcycles++;
+    vdc->_sg_access_dotcycles %= 8;
+
+    u8 cycles_per_access = SG_ACCESS_WIDTHS[vdc->_latched_sm];
+    if (vdc->_sg_access_dotcycles % cycles_per_access) {
+        return;
+    }
+
+    u8 height = SPRITE_CGY_HEIGHTS[ispr->cgy];
+
+    u8 bitplane_to_load = vdc->_sg_access_dotcycles % cycles_per_access % 8;
+    if (vdc->_latched_sm == VDC_SM_2_LSB) {
+        bitplane_to_load += (ispr->sg_sel << 1);
+    } else {
+        bitplane_to_load += (vdc->_sm_mode4_current_sg << 1);
+    }
+
+    u8 cur_sprite_scanline = (vdc->scanline - ispr->ypos);
+
+    u8 cur_sprite_line =
+        ispr->yflip ? SPRITE_CGY_HEIGHTS[ispr->cgy] - cur_sprite_scanline : cur_sprite_scanline;
+    u8 y_offset = cur_sprite_line % 16;
+
+    u8 pattern_cgy_bits = height == 16 ? ispr->pattern & 0b110 : cur_sprite_line / 4;
+
+    u16 bitplane_addr = ((ispr->pattern & 0b11111111001) << 6) | ((pattern_cgy_bits & 0b110) << 6) |
+                        (bitplane_to_load << 4) | (y_offset & 0xF);
+
+    ispr->bitplanes[bitplane_to_load] = vdc->vram[bitplane_addr & VRAM_MASK];
+
+    if (vdc->_latched_sm == VDC_SM_2_LSB) {
+        if (ispr->bitplanes_loaded >= 2) {
+            vdc->_sprite_sgload_progress++;
+        }
+    } else if (vdc->_latched_sm == VDC_SM_4) {
+        if (ispr->bitplanes_loaded == 2) {
+            vdc->_sm_mode4_current_sg ^= true;
+        }
+    } else {
+        if (ispr->bitplanes_loaded >= 4) {
+            vdc->_sprite_sgload_progress++;
+        }
+    }
+}
+
+static void _vdc_render_px_to_fifo(HuC6270* vdc) {
     u8 ch0 = vdc->_temp_cg[0] & 0xFF;
     u8 ch1 = (vdc->_temp_cg[0] & 0xFF00) >> 8;
     u8 ch2 = vdc->_temp_cg[1] & 0xFF;
     u8 ch3 = (vdc->_temp_cg[1] & 0xFF00) >> 8;
 
-    u8 bg_out = ch0 | (ch1 << 1) | (ch2 << 2) | (ch3 << 3) | (vdc->_temp_bat.cgcolor << 4);
+    u8 bg_out = _get_bit(ch0, vdc->pixel % 8) | (_get_bit(ch1, vdc->pixel % 8) << 1) |
+                (_get_bit(ch2, vdc->pixel % 8) << 2) | (_get_bit(ch3, vdc->pixel % 8) << 3) |
+                (vdc->_temp_bat.cgcolor << 4);
+    u8 spr_out = 0;
+    bool spbg = false;
+    bool sprite_rendered = false;
+    bool has_sprite_0_pixel = false;
 
-    // TODO: Sprites!!!
+    for (int i = 0; i < 16; i++) {
+        PCE_VDCInternalSprite* spr = vdc->_line_sprites + i;
+        if (spr->populated) {
+            if (vdc->pixel >= spr->xpos) {
+                u8 spr_x = spr->xflip ? 16 - (vdc->pixel - spr->xpos) : (vdc->pixel - spr->xpos);
+                u8 spr_pixel = _get_bit(spr->bitplanes[0], spr_x) |
+                               (_get_bit(spr->bitplanes[1], spr_x) << 1) |
+                               (_get_bit(spr->bitplanes[2], spr_x) << 2) |
+                               (_get_bit(spr->bitplanes[3], spr_x) << 3) | (spr->spr_color << 4);
 
-    PCE_VDCOutput vdc_out = (PCE_VDCOutput){.bg = bg_out};
+                spbg = spr->spbg | !bg_out;
+
+                if ((spr_pixel & 0xF) != 0) {
+                    if (spr->is_sprite_0) {
+                        has_sprite_0_pixel = spbg;
+                    } else {
+                        if (has_sprite_0_pixel && spbg) {
+                            vdc->sr.cr = true;
+                        }
+                    }
+                }
+
+                if (!spr_out) {
+                    spr_out = spr_pixel;
+                }
+
+                sprite_rendered = true;
+            }
+
+        } else {
+            break;
+        }
+    }
+
+    PCE_VDCOutput vdc_out = (PCE_VDCOutput){.bg = bg_out, .spr = spr_out, .spbg = spbg};
 
     queue_enqueue(vdc->_pixel_fifo, &vdc_out);
 
     vdc->pixel++;
     vdc->pixel %= VCE_MAX_X_SCREEN_SIZE;
+}
+
+static void _vdc_evaluate_sprites(HuC6270* vdc) {
+    // this is not cycle accurate at all btw qwq
+
+    // TODO: CGX
+
+    u8 sprites_evaluated = 0;
+    for (int i = 0; i < VDC_SPRITE_COUNT; i++) {
+        PCE_VDCSprite sprite = vdc->satb[i];
+        if (vdc->scanline >= sprite.y - VISIBLE_TOPLEFT_Y) {
+            u8 height = SPRITE_CGY_HEIGHTS[sprite.cgy];
+
+            if (vdc->scanline < (sprite.y - VISIBLE_TOPLEFT_Y) + height) {
+                if (sprites_evaluated >= countof(vdc->_line_sprites)) {
+                    vdc->sr.or = true;
+                    break;
+                }
+
+                vdc->_line_sprites[sprites_evaluated].populated = true;
+                vdc->_line_sprites[sprites_evaluated].spbg = sprite.spbg;
+                vdc->_line_sprites[sprites_evaluated].is_sprite_0 = i == 0;
+                vdc->_line_sprites[sprites_evaluated].spr_color = sprite.color;
+                vdc->_line_sprites[sprites_evaluated].sg_sel = sprite.pc & 0x1;
+                vdc->_line_sprites[sprites_evaluated].pattern = sprite.pc & (~0x1);
+                vdc->_line_sprites[sprites_evaluated].xflip = sprite.xflip;
+                vdc->_line_sprites[sprites_evaluated].yflip = sprite.yflip;
+                vdc->_line_sprites[sprites_evaluated].xpos = sprite.x;
+                vdc->_line_sprites[sprites_evaluated].ypos = sprite.y;
+
+                sprites_evaluated++;
+            }
+        }
+    }
 }
 
 static u16 _vdc_read_reg(HuC6270* vdc) {
@@ -241,7 +388,7 @@ void pce_vdc_destroy(HuC6270* vdc) {
 void pce_vdc_reset(HuC6270* vdc) {
     // TODO: randomize uninitialized memory?
     memset(vdc->vram, 0, sizeof(u16) * 32 * 1024);
-    memset(vdc->satb, 0, sizeof(PCE_VDCSprite) * 64);
+    memset(vdc->satb, 0, sizeof(PCE_VDCSprite) * VDC_SPRITE_COUNT);
 
     vdc->ar = 0;
     vdc->sr.word = 0;
@@ -271,7 +418,8 @@ void pce_vdc_reset(HuC6270* vdc) {
     vdc->state = VDC_STATE_BURST;
     vdc->charcycle_count = 0;
     vdc->dotcycle_count = 0;
-    vdc->_vram_access_dotcycles = 0;
+    vdc->_cg_access_dotcycles = 0;
+    vdc->_sg_access_dotcycles = 0;
 
     vdc->scanline = 0;
     vdc->pixel = 0;
@@ -312,11 +460,18 @@ PCE_VDCOutput pce_vdc_step(HuC6270* vdc) {
     if (vdc->dotcycle_count <= 0) {
         vdc->dotcycle_count = 8;
         vdc->charcycle_count--;
-        _vdc_fifo_renderpx(vdc);
+        _vdc_render_px_to_fifo(vdc);
     }
 
     if (vdc->state == VDC_STATE_HBLANK_HDS_PRIME || vdc->state == VDC_STATE_RENDER) {
-        _vdc_access_memory(vdc);
+        _vdc_access_vram_cg(vdc);
+    } else if (vdc->state == VDC_STATE_HBLANK_HDE || vdc->state == VDC_STATE_HBLANK_HDS ||
+               vdc->state == VDC_STATE_HSYNC) {
+        if (!vdc->_sprite_eval_done) {
+            _vdc_evaluate_sprites(vdc);
+            vdc->_sprite_eval_done = true;
+        }
+        _vdc_access_vram_sg(vdc);
     }
 
     if (vdc->charcycle_count <= 0) {
@@ -367,15 +522,13 @@ PCE_VDCOutput pce_vdc_step(HuC6270* vdc) {
                 vdc->_latched_vcr = vdc->vcr.vcr;
             }
 
-            if (prev_state != VDC_STATE_HSYNC) {
-                vdc->_latched_bb = vdc->cr.bb;
-                vdc->_latched_bb = vdc->cr.sb;
-                vdc->_latched_bgx = vdc->bxr;
-                vdc->_latched_bgy = vdc->byr;
-                vdc->_latched_cm = vdc->mwr.cm;
+            vdc->_latched_bb = vdc->cr.bb;
+            vdc->_latched_bb = vdc->cr.sb;
+            vdc->_latched_bgx = vdc->bxr;
+            vdc->_latched_bgy = vdc->byr;
+            vdc->_latched_cm = vdc->mwr.cm;
 
-                vdc->scanline++;
-            }
+            // vdc->scanline++;
 
             vdc->charcycle_count = vdc->_latched_hsw + 1;
             break;
@@ -399,6 +552,12 @@ PCE_VDCOutput pce_vdc_step(HuC6270* vdc) {
             break;
         }
         case VDC_STATE_HBLANK_HDE: {
+            vdc->scanline++;
+            vdc->_sprite_eval_done = false;
+            vdc->_sprite_sgload_progress = 0;
+            memset(vdc->_line_sprites, 0,
+                   sizeof(PCE_VDCInternalSprite) * countof(vdc->_line_sprites));
+
             vdc->charcycle_count = vdc->_latched_hde + 1;
             break;
         }
@@ -421,6 +580,7 @@ PCE_VDCOutput pce_vdc_step(HuC6270* vdc) {
     if (vdc->state == VDC_STATE_RENDER) {
         PCE_VDCOutput out = {};
         queue_dequeue(vdc->_pixel_fifo, &out);
+
         return out;
     } else {
         return (PCE_VDCOutput){.spbg = true, .bg = 0, .spr = 0, .vsync = vsync, .hsync = hsync};
