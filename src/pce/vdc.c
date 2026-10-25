@@ -80,16 +80,19 @@ static void _vdc_access_memory(HuC6270* vdc) {
         break;
     }
     case VRAMCYCLE_CG0: {
-        vdc->_temp_cg[0] = vdc->vram[vdc->_temp_bat.charcode << 4];
+        vdc->_temp_cg[0] =
+            vdc->vram[(vdc->_temp_bat.charcode << 4) + ((vdc->_latched_bgy + vdc->scanline) % 8)];
         break;
     }
     case VRAMCYCLE_CG1: {
-        vdc->_temp_cg[1] = vdc->vram[(vdc->_temp_bat.charcode + 1) << 4];
+        vdc->_temp_cg[1] = vdc->vram[((vdc->_temp_bat.charcode + 1) << 4) +
+                                     ((vdc->_latched_bgy + vdc->scanline) % 8)];
         break;
     }
     case VRAMCYCLE_CGN: {
         vdc->_temp_cg[vdc->_latched_cm] =
-            vdc->vram[(vdc->_temp_bat.charcode + vdc->_latched_cm) << 4];
+            vdc->vram[((vdc->_temp_bat.charcode + vdc->_latched_cm) << 4) +
+                      ((vdc->_latched_bgy + vdc->scanline) % 8)];
         break;
     }
     }
