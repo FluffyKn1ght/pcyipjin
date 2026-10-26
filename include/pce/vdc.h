@@ -145,7 +145,7 @@ typedef enum : u8 {
  */
 typedef struct {
     u16 y : 10;  /**< Sprite Y coordinate */
-    u16 x : 10;  /**< Sprite X coordinate */
+    u16 x : 11;  /**< Sprite X coordinate */
     u16 pc : 11; /**< Pattern code */
 
     u8 color : 4; /**< Sprite color */
@@ -218,7 +218,7 @@ typedef struct {
     PCE_VDCRegister ar : 5; /** Address Register */
 
     union {
-        u16 word : 7;
+        u16 word;
         struct {
             bool cr : 1;  /**< Collision Detect */
             bool or : 1;  /**< Over Detect */
@@ -238,7 +238,7 @@ typedef struct {
     bool vram_access_is_write; /**< true = VRAM write, false = VRAM read */
 
     union {
-        u16 word : 13;
+        u16 word;
         struct {
             struct {
                 bool cc : 1;             /**< Collision Detect */
@@ -261,7 +261,7 @@ typedef struct {
     u16 byr : 9;  /**< BGY Scroll [next line] */
 
     union {
-        u16 word : 8;
+        u16 word;
         struct {
             PCE_VDC_VRAMAccessWidth vm : 2;  /**< VRAM (CG) Access Width [next frame] */
             PCE_VDCSpriteAccessWidth sm : 2; /**< SG Access Width [next frame] */
@@ -272,7 +272,7 @@ typedef struct {
     } mwr; /**< Memory Access Width Register */
 
     union {
-        u16 word : 15;
+        u16 word;
         struct {
             u8 hsw : 5; /**< Horizontal Sync Pulse Width - 1 [next frame] */
             u8 hds : 7; /**< Horizontal Display Start Position - 1 [next frame] */
@@ -280,7 +280,7 @@ typedef struct {
     } hsr; /**< Horizontal Sync Register */
 
     union {
-        u16 word : 15;
+        u16 word;
         struct {
             u8 hdw : 7; /**< Horizontal Display Width - 1 [next frame] */
             u8 hde : 7; /**< Horizontal Display End Position - 1 [next frame] */
@@ -288,7 +288,7 @@ typedef struct {
     } hdr; /**< Horizontal Display Register */
 
     union {
-        u16 word : 16;
+        u16 word;
         struct {
             u8 vsw : 5; /**< Vertical Sync Pulse Width - 1 [next frame] */
             u8 vds;     /**< Vertical Display Start Position - 2 [next frame] */
@@ -296,21 +296,21 @@ typedef struct {
     } vpr; /**< Vertical Sync Register */
 
     union {
-        u16 word : 9;
+        u16 word;
         struct {
             u16 vdw : 9; /**< Vertical Display Width - 1 [next frame] */
         };
     } vdw; /**< Vertical Display Width Register */
 
     union {
-        u16 word : 8;
+        u16 word;
         struct {
             u8 vcr; /**< Vertical Display End Position [next frame] */
         };
     } vcr; /**< Vertical Display End Position Register */
 
     union {
-        u16 word : 5;
+        u16 word;
         struct {
             bool dsc : 1; /**< SATB DMA Completed IRQ Enable */
             bool dvc : 1; /**< VRAM DMA Completed IRQ Enable */
@@ -332,11 +332,12 @@ typedef struct {
     bool irq1; /**< Interrupt Request output pin */
 
     PCE_VDCState state;  /**< Current VDC state */
-    s16 charcycle_count; /**< Character cycle counter */
-    s16 dotcycle_count;  /**< Dotcycle counter */
+    s32 charcycle_count; /**< Character cycle counter */
+    s8 dotcycle_count;   /**< Dotcycle counter */
 
     u16 scanline : 9; /**< Current scanline */
-    u16 pixel : 11;   /**< Current pixel */
+    u16 pixel : 11; /**< Current pixel. This will be ahead of the CRT beam as the VDC starts filling
+                       the FIFO before tile 0 output. */
 
     s8 _cg_access_dotcycles;
     s8 _sg_access_dotcycles;
@@ -353,7 +354,7 @@ typedef struct {
     PCE_VDC_VRAMAccessWidth _latched_vm;
     PCE_VDCSpriteAccessWidth _latched_sm;
     PCE_VDC_VScreenSize _latched_screen;
-    u8 _latched_vscr_width : 7, _latched_vscr_height : 5;
+    u8 _latched_vscr_width, _latched_vscr_height;
     u8 _latched_hsw : 5, _latched_hds : 7, _latched_hdw : 7, _latched_hde : 7;
     u8 _latched_vsw : 5, _latched_vds, _latched_vcr;
     u16 _latched_vdw : 9;
@@ -416,6 +417,6 @@ u8 pce_vdc_read(HuC6270* vdc, u8 addr);
  */
 void pce_vdc_write(HuC6270* vdc, u8 addr, u8 value);
 
-extern const u16 PCE_VDC_VSCREEN_SIZES[VDC_SCREEN_COUNT][2];
+extern const u8 PCE_VDC_VSCREEN_SIZES[VDC_SCREEN_COUNT][2];
 
 #endif

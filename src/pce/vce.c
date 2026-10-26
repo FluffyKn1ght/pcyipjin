@@ -10,7 +10,7 @@
 #define REG_CTRW 2
 
 #define WRITE_WORD(dest, half, value)                                                              \
-    dest = ((dest) << (1 - ((half) * 8))) | ((value) << ((half) * 8))
+    dest = (((dest) << (8 - ((half) * 8))) | ((value) << ((half) * 8)) & 0xFFFF)
 
 const u16 CLOCK_MODULOS[4] = {4, 3, 2, 2};
 
